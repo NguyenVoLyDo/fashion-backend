@@ -1,0 +1,8 @@
+node_modules
+.env
+.env.*
+!.env.docker
+coverage
+tests
+*.test.js
+.git

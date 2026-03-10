@@ -1,0 +1,15 @@
+﻿Server running on port 3000
+Database connected
+Γ£ô Truncated
+Γ£ô User created, id = 1 | JWT id = {"id":1,"email":"test@test.com","role":"customer","iat":1773
+Γ£ô variantA id = 1
+
+1. Add to user cart: 201 {"data":{"id":1,"cartId":1,"variantId":1,"quantity":1,"priceAt":"99000.00"}}
+2. User cart: 200 {"items":[],"itemCount":0,"subtotal":0}
+
+3. Guest add: 201 {"id":2,"cartId":2,"variantId":1,"quantity":2,"priceAt":"99000.00"}
+4. Merge: 200 {"data":{"merged":true}}
+5. User cart after merge (with MERGE_SESSION cookie): 200 {"items":[],"itemCount":0,"subtotal":0}
+6. User cart after merge (no cookie): 200 {"items":[],"itemCount":0,"subtotal":0}
+
+DB state after merge: [{"cart_id":1,"user_id":null,"session_id":"0cd16863-a01b-4eb4-9dbb-c18089c00f86","variant_id":1,"quantity":1},{"cart_id":3,"user_id":1,"session_id":null,"variant_id":1,"quantity":2}]
