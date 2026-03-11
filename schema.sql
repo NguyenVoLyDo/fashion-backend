@@ -95,19 +95,28 @@ CREATE TABLE IF NOT EXISTS product_variants (
 -- ── Carts ─────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS carts (
     id          SERIAL PRIMARY KEY,
-    user_id     INT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    user_id     INT         REFERENCES users(id) ON DELETE CASCADE,  -- NULL for guest carts
+    session_id  UUID,                                                  -- NULL for logged-in users
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT carts_identity_check CHECK (user_id IS NOT NULL OR session_id IS NOT NULL)
 );
+-- One cart per user (partial unique)
+CREATE UNIQUE INDEX IF NOT EXISTS carts_user_id_unique ON carts (user_id) WHERE user_id IS NOT NULL;
+-- One cart per session (partial unique)
+CREATE UNIQUE INDEX IF NOT EXISTS carts_session_id_unique ON carts (session_id) WHERE session_id IS NOT NULL;
 
 -- ── Cart items ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS cart_items (
     id          SERIAL PRIMARY KEY,
-    cart_id     INT NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
-    variant_id  INT NOT NULL REFERENCES product_variants(id),
-    quantity    INT NOT NULL DEFAULT 1,
+    cart_id     INT           NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
+    variant_id  INT           NOT NULL REFERENCES product_variants(id),
+    quantity    INT           NOT NULL DEFAULT 1,
+    price_at    NUMERIC(12,2) NOT NULL DEFAULT 0,
+    added_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     UNIQUE (cart_id, variant_id)
 );
+
 
 -- ── Orders ────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS orders (
