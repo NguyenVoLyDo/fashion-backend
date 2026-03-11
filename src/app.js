@@ -80,7 +80,7 @@ app.use(logger);
 app.use('/api/v1/cart', (req, res, next) => {
     if (!req.cookies?.session_id) {
         const sid = crypto.randomUUID();
-        res.cookie('session_id', sid, { maxAge: 604800000, httpOnly: true, sameSite: 'strict' });
+        res.cookie('session_id', sid, { maxAge: 604800000, httpOnly: true, sameSite: 'none', secure: true });
         req.sessionId = sid;
     } else {
         req.sessionId = req.cookies.session_id;
