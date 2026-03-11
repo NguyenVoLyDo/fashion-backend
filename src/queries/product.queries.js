@@ -174,6 +174,12 @@ export async function getProductBySlug(pool, slug) {
                c.id                    AS "categoryId",
                c.name                  AS "categoryName",
                c.slug                  AS "categorySlug",
+               (SELECT ROUND(AVG(r.rating)::numeric, 1)
+                FROM reviews r
+                WHERE r.product_id = p.id AND r.is_visible = TRUE) AS avg_rating,
+               (SELECT COUNT(*)
+                FROM reviews r
+                WHERE r.product_id = p.id AND r.is_visible = TRUE) AS review_count,
                COALESCE(imgs.images, '[]'::json)    AS images,
                COALESCE(vars.variants, '[]'::json)  AS variants
         FROM   products p

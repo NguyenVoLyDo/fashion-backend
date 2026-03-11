@@ -12,6 +12,10 @@ import catalogRoutes from './routes/catalog.routes.js';
 import cartRoutes from './routes/cart.routes.js';
 import orderRoutes from './routes/order.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import reviewRoutes from './routes/review.routes.js';
+import shipmentRoutes from './routes/shipment.routes.js';
+import loyaltyRoutes from './routes/loyalty.routes.js';
+import uploadRoutes from './routes/upload.routes.js';
 import errorHandler from './middleware/error-handler.js';
 import logger from './middleware/logger.js';
 
@@ -65,8 +69,8 @@ const authLimiter = rateLimit({
 app.use(globalLimiter);
 
 // ── Parsers ───────────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // ── Request logger ────────────────────────────────────────────────────────────
@@ -90,6 +94,10 @@ app.use('/api/v1/catalog', catalogRoutes);
 app.use('/api/v1/cart', cartRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1', reviewRoutes);
+app.use('/api/v1', shipmentRoutes);
+app.use('/api/v1', loyaltyRoutes);
+app.use('/api/v1', uploadRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {

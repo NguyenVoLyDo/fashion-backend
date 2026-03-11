@@ -2,7 +2,17 @@
  * Order service — business logic for checkout flow.
  */
 import { getCartWithItems } from '../queries/cart.queries.js';
+import { clearCart } from '../queries/cart.queries.js';
 import { createOrderWithItems } from '../queries/order.queries.js';
+import {
+    findVoucherByCode,
+    validateVoucher,
+    calculateDiscount
+} from '../queries/voucher.queries.js';
+import {
+    getOrCreateAccount,
+    redeemPoints
+} from '../queries/loyalty.queries.js';
 import { getPaymentUrl } from './payment.service.js';
 
 /**
@@ -30,11 +40,11 @@ function validateCartStock(items) {
  * Process checkout for an authenticated user.
  *
  * @param {import('pg').Pool} pool
- * @param {{ userId: number, addressId: number|string, method: string }} opts
- * @returns {Promise<{ orderId, orderNo, subtotal, shippingFee, total, paymentUrl? }>}
+ * @param {{ userId: number, addressId: number|string, method: string, note?: string, voucherCode?: string, pointsToRedeem?: number }} opts
+ * @returns {Promise<{ orderId, orderNo, subtotal, shippingFee, total, paymentUrl?, pointsUsed?: number, pointsDiscount?: number }>}
  */
-export async function checkout(pool, { userId, addressId, method }) {
-    // 1. Validate address ownership
+export async function checkout(pool, { userId, addressId, method, note, voucherCode, pointsToRedeem = 0 }) {
+    // 1. Get cart items + lock variantss ownership
     const { rows: addrRows } = await pool.query(
         `SELECT id, full_name, phone, address, city FROM addresses WHERE id = $1 AND user_id = $2`,
         [addressId, userId],
@@ -64,8 +74,38 @@ export async function checkout(pool, { userId, addressId, method }) {
         (sum, item) => sum + Number(item.priceAt) * item.quantity,
         0,
     );
-    const shippingFee = subtotal >= 500000 ? 0 : 30000;
-    const total = subtotal + shippingFee;
+
+    let discountAmount = 0;
+    let validVoucher = null;
+    let freeShip = false;
+
+    if (voucherCode) {
+        validVoucher = await validateVoucher(pool, { code: voucherCode, subtotal });
+        discountAmount = calculateDiscount(validVoucher, subtotal);
+        if (validVoucher.type === 'free_ship') {
+            freeShip = true;
+        }
+    }
+
+    const shippingFee = (freeShip || subtotal >= 500000) ? 0 : 30000;
+
+    // 2.3 Loyalty Points logic
+    let pointsDiscount = 0;
+    if (pointsToRedeem > 0) {
+        const account = await getOrCreateAccount(pool, userId);
+        if (account.points_balance < pointsToRedeem) {
+            throw {
+                code: 'INSUFFICIENT_POINTS',
+                status: 400,
+                error: 'Not enough loyalty points available',
+                data: { available: account.points_balance, requested: pointsToRedeem }
+            };
+        }
+        pointsDiscount = pointsToRedeem * 100; // Assuming 1 point = 100 currency units
+    }
+
+    // 2.4 Final total
+    const total = Math.max(0, subtotal - discountAmount - pointsDiscount + shippingFee);
 
     // 5. Build items snapshot
     const items = cartItems.map(item => ({
@@ -84,6 +124,11 @@ export async function checkout(pool, { userId, addressId, method }) {
     let result;
     try {
         await client.query('BEGIN');
+
+        if (pointsToRedeem > 0) {
+            await redeemPoints(client, { userId, pointsToRedeem });
+        }
+
         result = await createOrderWithItems(client, {
             userId,
             addressId: addr.id,
@@ -93,9 +138,13 @@ export async function checkout(pool, { userId, addressId, method }) {
             shipCity: addr.city ?? null,
             subtotal,
             shippingFee,
+            discountAmount,
             total,
             items,
             method,
+            voucherId: validVoucher?.id,
+            pointsUsed: pointsToRedeem,
+            pointsDiscount,
         });
         await client.query('COMMIT');
     } catch (err) {
@@ -112,6 +161,8 @@ export async function checkout(pool, { userId, addressId, method }) {
         subtotal,
         shippingFee,
         total,
+        pointsUsed: pointsToRedeem,
+        pointsDiscount,
     };
 
     if (method !== 'cod') {

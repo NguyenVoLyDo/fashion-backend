@@ -116,3 +116,63 @@ export async function incrementUsage(client, voucherId) {
         [voucherId],
     );
 }
+
+// ── Admin queries ─────────────────────────────────────────────────────────────
+
+export async function createVoucher(pool, data) {
+    const { code, type, value, minOrderValue, maxDiscount, usageLimit, validFrom, validUntil } = data;
+    const { rows } = await pool.query(`
+        INSERT INTO vouchers (code, type, value, min_order_value, max_discount, usage_limit, valid_from, valid_until)
+        VALUES (UPPER(TRIM($1)), $2, $3, COALESCE($4, 0), $5, $6, $7, $8)
+        RETURNING *
+    `, [code, type, value, minOrderValue ?? null, maxDiscount ?? null, usageLimit ?? null, validFrom ?? null, validUntil ?? null]);
+    return rows[0];
+}
+
+export async function getVouchers(pool) {
+    const { rows } = await pool.query(`SELECT * FROM vouchers ORDER BY created_at DESC`);
+    return rows;
+}
+
+export async function updateVoucher(pool, { id, data }) {
+    const { code, type, value, minOrderValue, maxDiscount, usageLimit, validFrom, validUntil, isActive } = data;
+    
+    // We use COALESCE so if a value is passed as null/undefined, it uses the existing value.
+    // However, since some fields CAN be updated to null, a dynamic UPDATE query is usually better, 
+    // but COALESCE is requested / simple. Let's do a simple dynamic update or strict COALESCE.
+    // The prompt says "COALESCE update".
+    const { rows } = await pool.query(`
+        UPDATE vouchers
+        SET code = UPPER(TRIM(COALESCE($2, code))),
+            type = COALESCE($3, type),
+            value = COALESCE($4, value),
+            min_order_value = COALESCE($5, min_order_value),
+            max_discount = COALESCE($6, max_discount),
+            usage_limit = COALESCE($7, usage_limit),
+            valid_from = COALESCE($8, valid_from),
+            valid_until = COALESCE($9, valid_until),
+            is_active = COALESCE($10, is_active)
+        WHERE id = $1
+        RETURNING *
+    `, [
+        id, 
+        code ?? null, 
+        type ?? null, 
+        value ?? null, 
+        minOrderValue ?? null, 
+        maxDiscount ?? null, 
+        usageLimit ?? null, 
+        validFrom ?? null, 
+        validUntil ?? null, 
+        isActive ?? null
+    ]);
+    return rows[0];
+}
+
+export async function deleteVoucher(pool, id) {
+    await pool.query(`
+        UPDATE vouchers
+        SET is_active = FALSE
+        WHERE id = $1
+    `, [id]);
+}

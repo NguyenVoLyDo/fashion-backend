@@ -9,6 +9,13 @@ import {
     adminListOrders,
     adminUpdateOrderStatus,
 } from '../queries/order.queries.js';
+import { completeOrder } from '../queries/loyalty.queries.js';
+import {
+    createVoucher,
+    getVouchers,
+    updateVoucher,
+    deleteVoucher,
+} from '../queries/voucher.queries.js';
 
 const router = Router();
 
@@ -72,14 +79,27 @@ router.patch(
     asyncHandler(async (req, res) => {
         validate(req);
 
-        const order = await adminUpdateOrderStatus(pool, {
+        const updated = await adminUpdateOrderStatus(pool, {
             orderId: req.params.id,
             status: req.body.status,
             changedBy: req.user.id,
         });
 
-        return res.status(200).json({ data: order });
+        return res.json({ data: updated });
     }),
+);
+
+// ── POST /admin/orders/:id/complete ───────────────────────────────────────────
+
+router.post(
+    '/orders/:id/complete',
+    authMiddleware,
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+        const { id } = req.params;
+        const result = await completeOrder(pool, { orderId: id, changedBy: req.user.id });
+        return res.status(200).json({ data: result });
+    })
 );
 
 // ── GET /admin/stats  [auth + admin] ─────────────────────────────────────────
@@ -107,6 +127,86 @@ router.get(
 
         return res.status(200).json({ data: rows[0] });
     }),
+);
+
+// ── Vouchers [auth + admin] ───────────────────────────────────────────────────
+
+router.post(
+    '/vouchers',
+    authMiddleware,
+    requireAdmin,
+    body('code').notEmpty().withMessage('code is required').isString().trim(),
+    body('type').isIn(['percent', 'fixed', 'free_ship']).withMessage('Invalid type'),
+    body('value').isFloat({ gt: 0 }).withMessage('value must be greater than 0'),
+    body('minOrderValue').optional().isFloat({ min: 0 }),
+    body('maxDiscount').optional().isFloat({ min: 0 }),
+    body('usageLimit').optional().isInt({ min: 1 }),
+    body('validFrom').optional().isISO8601(),
+    body('validUntil').optional().isISO8601(),
+    asyncHandler(async (req, res) => {
+        validate(req);
+        try {
+            const voucher = await createVoucher(pool, req.body);
+            return res.status(201).json({ data: voucher });
+        } catch (err) {
+            if (err.code === '23505') { // unique violation
+                return res.status(409).json({ error: 'Voucher code already exists', code: 'CONFLICT' });
+            }
+            throw err;
+        }
+    })
+);
+
+router.get(
+    '/vouchers',
+    authMiddleware,
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+        const vouchers = await getVouchers(pool);
+        return res.status(200).json({ data: vouchers });
+    })
+);
+
+router.patch(
+    '/vouchers/:id',
+    authMiddleware,
+    requireAdmin,
+    body('code').optional().notEmpty().isString().trim(),
+    body('type').optional().isIn(['percent', 'fixed', 'free_ship']),
+    body('value').optional().isFloat({ gt: 0 }),
+    body('minOrderValue').optional().isFloat({ min: 0 }),
+    body('maxDiscount').optional().isFloat({ min: 0 }),
+    body('usageLimit').optional().isInt({ min: 1 }),
+    body('validFrom').optional().isISO8601(),
+    body('validUntil').optional().isISO8601(),
+    body('isActive').optional().isBoolean(),
+    asyncHandler(async (req, res) => {
+        validate(req);
+        try {
+            const voucher = await updateVoucher(pool, { id: req.params.id, data: req.body });
+            
+            if (!voucher) {
+                return res.status(404).json({ error: 'Voucher not found', code: 'NOT_FOUND' });
+            }
+            
+            return res.status(200).json({ data: voucher });
+        } catch (err) {
+            if (err.code === '23505') {
+                return res.status(409).json({ error: 'Voucher code already exists', code: 'CONFLICT' });
+            }
+            throw err;
+        }
+    })
+);
+
+router.delete(
+    '/vouchers/:id',
+    authMiddleware,
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+        await deleteVoucher(pool, req.params.id);
+        return res.status(200).json({ data: { deactivated: true } });
+    })
 );
 
 export default router;

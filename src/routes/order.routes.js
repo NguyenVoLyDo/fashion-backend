@@ -37,15 +37,23 @@ router.post(
     body('addressId').notEmpty().withMessage('addressId is required'),
     body('method')
         .isIn(['cod', 'vnpay', 'momo'])
-        .withMessage('method must be one of: cod, vnpay, momo'),
+        .withMessage('Invalid payment method'),
+    body('note').optional().isString().trim(),
+    body('voucherCode').optional().isString().trim(),
+    body('pointsToRedeem').optional().isInt({ min: 0 }).toInt(),
     asyncHandler(async (req, res) => {
         validate(req);
 
         try {
+            const { addressId, method, note, voucherCode, pointsToRedeem } = req.body;
+
             const result = await checkout(pool, {
                 userId: req.user.id,
-                addressId: req.body.addressId,
-                method: req.body.method,
+                addressId,
+                method,
+                note,
+                voucherCode,
+                pointsToRedeem,
             });
             return res.status(201).json({ data: result });
         } catch (err) {
@@ -56,8 +64,20 @@ router.post(
                     data: err.data,
                 });
             }
+            if (err.code === 'INSUFFICIENT_POINTS') {
+                return res.status(400).json({
+                    error: err.error || err.message,
+                    code: err.code,
+                    data: err.data,
+                });
+            }
             if (err.code === 'ADDRESS_NOT_FOUND' || err.code === 'EMPTY_CART') {
                 return res.status(400).json({ error: err.message, code: err.code });
+            }
+            if (err.code && err.code.startsWith('VOUCHER_')) {
+                const response = { error: err.message, code: err.code };
+                if (err.data) response.data = err.data;
+                return res.status(400).json(response);
             }
             throw err;
         }
