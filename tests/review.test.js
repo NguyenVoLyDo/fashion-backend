@@ -131,7 +131,7 @@ describe('Reviews Feature', () => {
     });
 
     it('4. GET /products/:slug (product detail) -> avg_rating and review_count are in response and correct', async () => {
-        const res = await request(app).get(`/api/v1/catalog/products/${testProductSlug}`);
+        const res = await request(app).get(`/api/v1/products/${testProductSlug}`);
         expect(res.status).toBe(200);
         const p = res.body.data;
         // In PostgreSQL numeric aggregates might come back as strings, ensuring Number casting works
