@@ -90,7 +90,7 @@ app.use('/api/v1/cart', (req, res, next) => {
 
 // ── API Routes ────────────────────────────────────────────────────────────────
 app.use('/api/v1/auth', authLimiter, authRoutes);
-app.use('/api/v1/catalog', catalogRoutes);
+app.use('/api/v1', catalogRoutes);
 app.use('/api/v1/cart', cartRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/admin', adminRoutes);

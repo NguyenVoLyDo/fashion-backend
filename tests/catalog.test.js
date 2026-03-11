@@ -122,9 +122,9 @@ afterAll(async () => {
 
 // ── Categories ────────────────────────────────────────────────────────────────
 
-describe('GET /api/v1/catalog/categories', () => {
+describe('GET /api/v1/categories', () => {
     it('returns array with parent and child categories', async () => {
-        const res = await request(app).get('/api/v1/catalog/categories');
+        const res = await request(app).get('/api/v1/categories');
 
         expect(res.status).toBe(200);
         expect(Array.isArray(res.body.data)).toBe(true);
@@ -143,9 +143,9 @@ describe('GET /api/v1/catalog/categories', () => {
 
 // ── Product listing ───────────────────────────────────────────────────────────
 
-describe('GET /api/v1/catalog/products', () => {
+describe('GET /api/v1/products', () => {
     it('returns only active products', async () => {
-        const res = await request(app).get('/api/v1/catalog/products');
+        const res = await request(app).get('/api/v1/products');
 
         expect(res.status).toBe(200);
         const slugs = res.body.data.map(p => p.slug);
@@ -155,7 +155,7 @@ describe('GET /api/v1/catalog/products', () => {
 
     it('filters by category slug', async () => {
         const res = await request(app)
-            .get('/api/v1/catalog/products')
+            .get('/api/v1/products')
             .query({ category: 'ao' });
 
         expect(res.status).toBe(200);
@@ -164,7 +164,7 @@ describe('GET /api/v1/catalog/products', () => {
 
     it('full-text search returns matching product', async () => {
         const res = await request(app)
-            .get('/api/v1/catalog/products')
+            .get('/api/v1/products')
             .query({ search: 'áo thun' });
 
         expect(res.status).toBe(200);
@@ -174,7 +174,7 @@ describe('GET /api/v1/catalog/products', () => {
 
     it('pagination meta has correct total', async () => {
         const res = await request(app)
-            .get('/api/v1/catalog/products')
+            .get('/api/v1/products')
             .query({ page: 1, limit: 1 });
 
         expect(res.status).toBe(200);
@@ -187,10 +187,10 @@ describe('GET /api/v1/catalog/products', () => {
 
 // ── Product detail ────────────────────────────────────────────────────────────
 
-describe('GET /api/v1/catalog/products/:slug', () => {
+describe('GET /api/v1/products/:slug', () => {
     it('returns product detail with variants and images arrays', async () => {
         const res = await request(app)
-            .get(`/api/v1/catalog/products/${activeProductSlug}`);
+            .get(`/api/v1/products/${activeProductSlug}`);
 
         expect(res.status).toBe(200);
         expect(res.body.data).toHaveProperty('slug', activeProductSlug);
@@ -202,7 +202,7 @@ describe('GET /api/v1/catalog/products/:slug', () => {
 
     it('404 NOT_FOUND for non-existent slug', async () => {
         const res = await request(app)
-            .get('/api/v1/catalog/products/non-existent-slug');
+            .get('/api/v1/products/non-existent-slug');
 
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('NOT_FOUND');
@@ -211,10 +211,10 @@ describe('GET /api/v1/catalog/products/:slug', () => {
 
 // ── Admin: create product ─────────────────────────────────────────────────────
 
-describe('POST /api/v1/catalog/products', () => {
+describe('POST /api/v1/products', () => {
     it('201 product created with admin token', async () => {
         const res = await request(app)
-            .post('/api/v1/catalog/products')
+            .post('/api/v1/products')
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ name: 'Áo khoác mới', basePrice: 450000, categoryId: 1 });
 
@@ -225,7 +225,7 @@ describe('POST /api/v1/catalog/products', () => {
 
     it('403 FORBIDDEN with customer token', async () => {
         const res = await request(app)
-            .post('/api/v1/catalog/products')
+            .post('/api/v1/products')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({ name: 'Sneaky product', basePrice: 100000, categoryId: 1 });
 
@@ -234,7 +234,7 @@ describe('POST /api/v1/catalog/products', () => {
 
     it('400 when basePrice is missing', async () => {
         const res = await request(app)
-            .post('/api/v1/catalog/products')
+            .post('/api/v1/products')
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ name: 'No price product', categoryId: 1 });
 
@@ -244,10 +244,10 @@ describe('POST /api/v1/catalog/products', () => {
 
 // ── Admin: stock adjustment ───────────────────────────────────────────────────
 
-describe('PATCH /api/v1/catalog/variants/:id/stock', () => {
+describe('PATCH /api/v1/variants/:id/stock', () => {
     it('delta=+10 increases stock_qty', async () => {
         const res = await request(app)
-            .patch(`/api/v1/catalog/variants/${variantId}/stock`)
+            .patch(`/api/v1/variants/${variantId}/stock`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ delta: 10 });
 
@@ -257,7 +257,7 @@ describe('PATCH /api/v1/catalog/variants/:id/stock', () => {
 
     it('delta=-9999 → 409 would go negative', async () => {
         const res = await request(app)
-            .patch(`/api/v1/catalog/variants/${variantId}/stock`)
+            .patch(`/api/v1/variants/${variantId}/stock`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ delta: -9999 });
 
