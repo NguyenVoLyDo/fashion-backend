@@ -6,6 +6,7 @@ export async function getProductRecommendations(pool, {
   categorySlug,
   maxPrice,
   minPrice,
+  searchTerm,
   excludeProductIds = [],
   limit = 4,
 }) {
@@ -24,6 +25,11 @@ export async function getProductRecommendations(pool, {
   if (minPrice) {
     conditions.push(`p.base_price >= $${idx++}`)
     params.push(minPrice)
+  }
+  if (searchTerm) {
+    conditions.push(`(p.name ILIKE $${idx} OR p.description ILIKE $${idx})`)
+    params.push(`%${searchTerm}%`)
+    idx++
   }
   if (excludeProductIds.length > 0) {
     conditions.push(`p.id != ALL($${idx++})`)

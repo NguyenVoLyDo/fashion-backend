@@ -68,9 +68,10 @@ router.post(
 
 Trả lời ĐÚNG format JSON sau, KHÔNG thêm markdown hay giải thích:
 {
-  "reply": "câu trả lời tư vấn ngắn gọn bằng tiếng Việt",
+  "reply": "câu trả lời tư vấn phong cách chuyên nghiệp, sành điệu (3-4 câu)",
   "filters": {
     "categorySlug": "nam hoặc nu hoặc phu-kien hoặc null",
+    "searchTerm": "từ khóa tìm kiếm sản phẩm (vd: 'áo sơ mi', 'đầm dự tiệc') hoặc null",
     "maxPrice": số hoặc null,
     "minPrice": số hoặc null,
     "shouldRecommend": true hoặc false
@@ -79,7 +80,7 @@ Trả lời ĐÚNG format JSON sau, KHÔNG thêm markdown hay giải thích:
 
     const raw = await ollamaChat({
       system: buildStylistPrompt(req.user, purchaseHistory, availableCategories) + 
-        '\nChỉ trả về JSON thuần túy, không có markdown code block.',
+        '\nChỉ trả về JSON thuần túy, không có văn bản thừa!',
       messages: [
         ...history.slice(-6),
         { role: 'user', content: intentPrompt },
@@ -101,6 +102,7 @@ Trả lời ĐÚNG format JSON sau, KHÔNG thêm markdown hay giải thích:
     if (parsed.filters?.shouldRecommend) {
       products = await getProductRecommendations(pool, {
         categorySlug: parsed.filters.categorySlug || undefined,
+        searchTerm: parsed.filters.searchTerm || undefined,
         maxPrice: parsed.filters.maxPrice || undefined,
         minPrice: parsed.filters.minPrice || undefined,
         excludeProductIds: excludeIds,
