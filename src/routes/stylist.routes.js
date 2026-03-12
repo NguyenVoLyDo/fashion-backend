@@ -64,23 +64,42 @@ router.post(
     const excludeIds = purchaseHistory.map(p => p.productId)
 
     // Bước 1: Hỏi Qwen để lấy reply + filters
-    const intentPrompt = `Tin nhắn của khách: "${message}"
+    const intentPrompt = `Dưới đây là một số ví dụ về cách phản hồi:
 
-TRẢ VỀ DUY NHẤT JSON THEO CẤU TRÚC SAU. TUYỆT ĐỐI KHÔNG SỬ DỤNG TIẾNG TRUNG (NO CHINESE). CHỈ DÙNG TIẾNG VIỆT:
-{
-  "reply": "câu trả lời tư vấn bằng tiếng Việt (3-4 câu)",
+VÍ DỤ 1:
+Khách: "Tôi muốn tìm áo sơ mi đi làm"
+Phản hồi: {
+  "reply": "Chào bạn! Một chiếc áo sơ mi chỉnh chu sẽ giúp bạn tự tin hơn rất nhiều ở công sở. Mình có một vài mẫu sơ mi vải linen thoáng mát hoặc cotton cao cấp rất hợp với bạn đó.",
   "filters": {
-    "categorySlug": "chọn 1 trong các giá trị: ${availableCategories.join(', ')} hoặc null",
-    "searchTerm": "từ khóa tìm kiếm tiếng Việt hoặc null",
-    "maxPrice": số hoặc null,
-    "minPrice": số hoặc null,
-    "shouldRecommend": true (nếu cần tìm sản phẩm) hoặc false
+    "categorySlug": "ao-so-mi",
+    "searchTerm": "sơ mi",
+    "maxPrice": null,
+    "minPrice": null,
+    "shouldRecommend": true
   }
-}`
+}
+
+VÍ DỤ 2:
+Khách: "Chào bạn"
+Phản hồi: {
+  "reply": "Chào bạn! Mình là Stylist AI của Fashion Store đây. Hôm nay mình có thể giúp gì cho bạn trong việc chọn đồ không nhỉ?",
+  "filters": {
+    "categorySlug": null,
+    "searchTerm": null,
+    "maxPrice": null,
+    "minPrice": null,
+    "shouldRecommend": false
+  }
+}
+
+Dựa trên các ví dụ trên, hãy xử lý tin nhắn sau. 
+LƯU Ý: CHỈ TRẢ VỀ JSON. TUYỆT ĐỐI KHÔNG DÙNG TIẾNG TRUNG. KHÔNG GIẢI THÍCH THÊM.
+
+Tin nhắn của khách: "${message}"`
 
     const raw = await ollamaChat({
       system: buildStylistPrompt(req.user, purchaseHistory, availableCategories) + 
-        '\nCHỈ TRẢ VỀ JSON. KHÔNG GIẢI THÍCH. KHÔNG DÙNG TIẾNG TRUNG.',
+        '\nCHỈ TRẢ VỀ JSON. CẤM TIẾNG TRUNG (NO CHINESE characters).',
       messages: [
         ...history.slice(-6),
         { role: 'user', content: intentPrompt },
