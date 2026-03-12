@@ -57,7 +57,7 @@ router.post(
     // Load purchase history + categories
     const [purchaseHistory, { rows: catRows }] = await Promise.all([
       userId ? getUserPurchaseHistory(pool, userId) : Promise.resolve([]),
-      pool.query(`SELECT slug FROM categories WHERE is_active = TRUE OR is_active IS NULL`),
+      pool.query(`SELECT slug FROM categories`),
     ])
 
     const availableCategories = catRows.map(r => r.slug)
