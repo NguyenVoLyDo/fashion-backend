@@ -66,12 +66,12 @@ router.post(
     // Bước 1: Hỏi Qwen để lấy reply + filters
     const intentPrompt = `Tin nhắn của khách: "${message}"
 
-Trả lời ĐÚNG format JSON sau, KHÔNG thêm markdown hay giải thích:
+Trả lời ĐÚNG format JSON sau, KHÔNG thêm văn bản thừa, KHÔNG dùng tiếng Trung, LUÔN dùng tiếng Việt:
 {
-  "reply": "câu trả lời tư vấn phong cách chuyên nghiệp, sành điệu (3-4 câu)",
+  "reply": "câu trả lời tư vấn phong cách chuyên nghiệp, sành điệu bằng tiếng Việt (3-4 câu)",
   "filters": {
-    "categorySlug": "nam hoặc nu hoặc phu-kien hoặc null",
-    "searchTerm": "từ khóa tìm kiếm sản phẩm (vd: 'áo sơ mi', 'đầm dự tiệc') hoặc null",
+    "categorySlug": "chọn 1 trong các giá trị: ${availableCategories.join(', ')} hoặc null",
+    "searchTerm": "từ khóa tìm kiếm sản phẩm tiếng Việt (vd: 'áo sơ mi', 'đầm dự tiệc') hoặc null",
     "maxPrice": số hoặc null,
     "minPrice": số hoặc null,
     "shouldRecommend": true hoặc false
@@ -80,7 +80,7 @@ Trả lời ĐÚNG format JSON sau, KHÔNG thêm markdown hay giải thích:
 
     const raw = await ollamaChat({
       system: buildStylistPrompt(req.user, purchaseHistory, availableCategories) + 
-        '\nChỉ trả về JSON thuần túy, không có văn bản thừa!',
+        '\nLƯU Ý QUAN TRỌNG: Tuyệt đối không sử dụng tiếng Trung. Luôn sử dụng tiếng Việt và trả về JSON thuần túy.',
       messages: [
         ...history.slice(-6),
         { role: 'user', content: intentPrompt },
@@ -92,7 +92,13 @@ Trả lời ĐÚNG format JSON sau, KHÔNG thêm markdown hay giải thích:
     let parsed = { reply: raw, filters: { shouldRecommend: false } }
     try {
       const match = raw.match(/\{[\s\S]*\}/)
-      if (match) parsed = JSON.parse(match[0])
+      if (match) {
+        parsed = JSON.parse(match[0])
+        // Đảm bảo categorySlug hợp lệ
+        if (parsed.filters?.categorySlug && !availableCategories.includes(parsed.filters.categorySlug)) {
+          parsed.filters.categorySlug = null
+        }
+      }
     } catch {
       // fallback: dùng raw text
     }
