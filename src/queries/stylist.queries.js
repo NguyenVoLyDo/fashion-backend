@@ -71,7 +71,7 @@ export async function getProductRecommendations(pool, {
  */
 export async function getUserPurchaseHistory(pool, userId) {
   const { rows } = await pool.query(`
-    SELECT DISTINCT
+    SELECT
       p.name,
       p.slug,
       c.name    AS "categoryName",
@@ -87,7 +87,8 @@ export async function getUserPurchaseHistory(pool, userId) {
     JOIN sizes sz ON sz.id = pv.size_id
     WHERE o.user_id = $1
       AND o.status IN ('completed', 'delivered', 'shipped')
-    ORDER BY o.created_at DESC
+    GROUP BY p.id, p.name, p.slug, c.name, co.name, sz.name
+    ORDER BY MAX(o.created_at) DESC
     LIMIT 10
   `, [userId])
   return rows
