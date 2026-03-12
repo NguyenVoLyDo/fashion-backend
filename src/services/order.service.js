@@ -43,19 +43,31 @@ function validateCartStock(items) {
  * @param {{ userId: number, addressId: number|string, method: string, note?: string, voucherCode?: string, pointsToRedeem?: number }} opts
  * @returns {Promise<{ orderId, orderNo, subtotal, shippingFee, total, paymentUrl?, pointsUsed?: number, pointsDiscount?: number }>}
  */
-export async function checkout(pool, { userId, addressId, method, note, voucherCode, pointsToRedeem = 0 }) {
-    // 1. Get cart items + lock variantss ownership
-    const { rows: addrRows } = await pool.query(
-        `SELECT id, full_name, phone, address, city FROM addresses WHERE id = $1 AND user_id = $2`,
-        [addressId, userId],
-    );
-    if (!addrRows[0]) {
-        const err = new Error('Address not found or does not belong to this user');
-        err.code = 'ADDRESS_NOT_FOUND';
-        err.status = 400;
-        throw err;
+export async function checkout(pool, { userId, addressId, shipName, shipPhone, shipAddress, shipCity, method, note, voucherCode, pointsToRedeem = 0 }) {
+    // 1. Resolve shipping address
+    let addr;
+    if (addressId) {
+        const { rows: addrRows } = await pool.query(
+            `SELECT id, full_name, phone, address, city FROM addresses WHERE id = $1 AND user_id = $2`,
+            [addressId, userId],
+        );
+        if (!addrRows[0]) {
+            const err = new Error('Address not found or does not belong to this user');
+            err.code = 'ADDRESS_NOT_FOUND';
+            err.status = 400;
+            throw err;
+        }
+        addr = {
+            id: addrRows[0].id,
+            full_name: addrRows[0].full_name,
+            phone: addrRows[0].phone,
+            address: addrRows[0].address,
+            city: addrRows[0].city,
+        };
+    } else {
+        // Inline ship info
+        addr = { id: null, full_name: shipName, phone: shipPhone, address: shipAddress, city: shipCity };
     }
-    const addr = addrRows[0];
 
     // 2. Fetch cart items
     const cartItems = await getCartWithItems(pool, { userId, sessionId: null });

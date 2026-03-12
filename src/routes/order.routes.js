@@ -34,7 +34,11 @@ function validate(req) {
 router.post(
     '/',
     authMiddleware,
-    body('addressId').notEmpty().withMessage('addressId is required'),
+    body('addressId').optional({ nullable: true }).isInt({ min: 1 }).toInt(),
+    body('shipName').optional().isString().trim(),
+    body('shipPhone').optional().isString().trim(),
+    body('shipAddress').optional().isString().trim(),
+    body('shipCity').optional().isString().trim(),
     body('method')
         .isIn(['cod', 'vnpay', 'momo'])
         .withMessage('Invalid payment method'),
@@ -44,12 +48,24 @@ router.post(
     asyncHandler(async (req, res) => {
         validate(req);
 
-        try {
-            const { addressId, method, note, voucherCode, pointsToRedeem } = req.body;
+        const { addressId, shipName, shipPhone, shipAddress, shipCity, method, note, voucherCode, pointsToRedeem } = req.body;
 
+        // Must have either addressId OR full inline ship info
+        if (!addressId && !(shipName && shipPhone && shipAddress && shipCity)) {
+            return res.status(400).json({
+                error: 'Vui lòng cung cấp thông tin giao hàng',
+                code: 'BAD_REQUEST',
+            });
+        }
+
+        try {
             const result = await checkout(pool, {
                 userId: req.user.id,
-                addressId,
+                addressId: addressId || null,
+                shipName: shipName || null,
+                shipPhone: shipPhone || null,
+                shipAddress: shipAddress || null,
+                shipCity: shipCity || null,
                 method,
                 note,
                 voucherCode,
