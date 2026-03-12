@@ -38,7 +38,7 @@ QUY TẮC:
 - Luôn dùng tiếng Việt, phong cách trẻ trung, sành điệu
 - Xưng "mình", gọi khách là "bạn"
 - Không bịa sản phẩm — chỉ giới thiệu sản phẩm thật từ database
-- Tối đa 3-4 câu văn, sau đó là sản phẩm gợi ý`
+- Trả về kết quả dưới dạng JSON có cấu trúc.`
 }
 
 // POST /stylist/chat
@@ -66,21 +66,21 @@ router.post(
     // Bước 1: Hỏi Qwen để lấy reply + filters
     const intentPrompt = `Tin nhắn của khách: "${message}"
 
-Trả lời ĐÚNG format JSON sau, KHÔNG thêm văn bản thừa, KHÔNG dùng tiếng Trung, LUÔN dùng tiếng Việt:
+TRẢ VỀ DUY NHẤT JSON THEO CẤU TRÚC SAU. TUYỆT ĐỐI KHÔNG SỬ DỤNG TIẾNG TRUNG (NO CHINESE). CHỈ DÙNG TIẾNG VIỆT:
 {
-  "reply": "câu trả lời tư vấn phong cách chuyên nghiệp, sành điệu bằng tiếng Việt (3-4 câu)",
+  "reply": "câu trả lời tư vấn bằng tiếng Việt (3-4 câu)",
   "filters": {
     "categorySlug": "chọn 1 trong các giá trị: ${availableCategories.join(', ')} hoặc null",
-    "searchTerm": "từ khóa tìm kiếm sản phẩm tiếng Việt (vd: 'áo sơ mi', 'đầm dự tiệc') hoặc null",
+    "searchTerm": "từ khóa tìm kiếm tiếng Việt hoặc null",
     "maxPrice": số hoặc null,
     "minPrice": số hoặc null,
-    "shouldRecommend": true hoặc false
+    "shouldRecommend": true (nếu cần tìm sản phẩm) hoặc false
   }
 }`
 
     const raw = await ollamaChat({
       system: buildStylistPrompt(req.user, purchaseHistory, availableCategories) + 
-        '\nLƯU Ý QUAN TRỌNG: Tuyệt đối không sử dụng tiếng Trung. Luôn sử dụng tiếng Việt và trả về JSON thuần túy.',
+        '\nCHỈ TRẢ VỀ JSON. KHÔNG GIẢI THÍCH. KHÔNG DÙNG TIẾNG TRUNG.',
       messages: [
         ...history.slice(-6),
         { role: 'user', content: intentPrompt },
