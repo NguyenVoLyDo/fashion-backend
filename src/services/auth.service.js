@@ -42,32 +42,63 @@ async function generateTokens(user) {
     return { accessToken, refreshToken };
 }
 
-// ── Public service methods ────────────────────────────────────────────────────
-
 /**
  * Register a new user.
  * @throws {{ code: 'DUPLICATE_EMAIL', status: 409 }}
  */
 export async function register({ email, password, fullName, phone }) {
-    // 1. Duplicate-email guard
-    const existing = await findUserByEmail(pool, email);
-    if (existing) {
-        const err = new Error('Email already registered');
-        err.code = 'DUPLICATE_EMAIL';
-        err.status = 409;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Duplicate-email guard
+        const existing = await findUserByEmail(client, email);
+        if (existing) {
+            const err = new Error('Email already registered');
+            err.code = 'DUPLICATE_EMAIL';
+            err.status = 409;
+            throw err;
+        }
+
+        // 2. Hash password
+        // We do this BEFORE the transaction insert to keep the transaction short,
+        // but we've already checked for the email.
+        const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+        // 3. Persist user
+        const user = await createUser(client, { email, passwordHash, fullName, phone });
+
+        // 4. Issue tokens
+        const { accessToken, refreshToken } = await generateTokensInternal(client, user);
+
+        await client.query('COMMIT');
+        return { accessToken, refreshToken, user };
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('[Registration Error Details]:', err);
         throw err;
+    } finally {
+        client.release();
     }
+}
 
-    // 2. Hash password
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+/**
+ * Internal version of generateTokens that takes a client
+ */
+async function generateTokensInternal(client, user) {
+    const accessToken = jwt.sign(
+        { id: user.id, email: user.email, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '15m' },
+    );
 
-    // 3. Persist user
-    const user = await createUser(pool, { email, passwordHash, fullName, phone });
+    const refreshToken = crypto.randomBytes(40).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
 
-    // 4. Issue tokens
-    const { accessToken, refreshToken } = await generateTokens(user);
+    await saveRefreshToken(client, { userId: user.id, tokenHash, expiresAt });
 
-    return { accessToken, refreshToken, user };
+    return { accessToken, refreshToken };
 }
 
 /**
