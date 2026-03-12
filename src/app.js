@@ -15,6 +15,7 @@ import adminRoutes from './routes/admin.routes.js';
 import reviewRoutes from './routes/review.routes.js';
 import shipmentRoutes from './routes/shipment.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
+import voucherRoutes from './routes/voucher.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import errorHandler from './middleware/error-handler.js';
 import logger from './middleware/logger.js';
@@ -95,8 +96,9 @@ app.use('/api/v1/cart', cartRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1', reviewRoutes);
-app.use('/api/v1', shipmentRoutes);
-app.use('/api/v1', loyaltyRoutes);
+app.use('/api/v1/shipments', shipmentRoutes);
+app.use('/api/v1/loyalty', loyaltyRoutes);
+app.use('/api/v1/vouchers', voucherRoutes);
 app.use('/api/v1', uploadRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────

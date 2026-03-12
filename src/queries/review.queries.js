@@ -14,9 +14,9 @@ export async function getProductReviews(pool, { productId, page, limit }) {
             r.rating, 
             r.title, 
             r.body, 
-            r.is_verified, 
-            r.created_at,
-            u.full_name AS author_name,
+            r.is_verified AS "isVerified", 
+            r.created_at AS "createdAt",
+            u.full_name AS "authorName",
             COUNT(*) OVER() AS total,
             ROUND(AVG(r.rating) OVER(), 1) AS avg_rating
         FROM reviews r

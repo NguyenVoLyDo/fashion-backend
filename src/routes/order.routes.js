@@ -21,6 +21,7 @@ const router = Router();
 function validate(req) {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+        console.log('Order Validation Errors:', errors.array());
         const err = new Error('Validation failed');
         err.code = 'BAD_REQUEST';
         err.status = 400;
@@ -46,7 +47,12 @@ router.post(
     body('voucherCode').optional().isString().trim(),
     body('pointsToRedeem').optional().isInt({ min: 0 }).toInt(),
     asyncHandler(async (req, res) => {
-        validate(req);
+        try {
+            validate(req);
+        } catch (e) {
+            console.error('Validation catch block:', e);
+            throw e;
+        }
 
         const { addressId, shipName, shipPhone, shipAddress, shipCity, method, note, voucherCode, pointsToRedeem } = req.body;
 
@@ -103,10 +109,10 @@ router.post(
 // ── GET /orders  [auth required] ──────────────────────────────────────────────
 
 router.get(
-    '/',
+    '/my',
     authMiddleware,
-    query('page').optional().isInt({ min: 1 }).toInt(),
-    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+    query('page').optional({ checkFalsy: true }).isInt({ min: 1 }).toInt(),
+    query('limit').optional({ checkFalsy: true }).isInt({ min: 1, max: 100 }).toInt(),
     asyncHandler(async (req, res) => {
         const page = req.query.page ?? 1;
         const limit = req.query.limit ?? 10;

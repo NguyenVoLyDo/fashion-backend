@@ -9,7 +9,7 @@ const router = Router();
 // ── GET /loyalty ──────────────────────────────────────────────────────────────
 
 router.get(
-    '/loyalty',
+    '/me',
     authMiddleware,
     asyncHandler(async (req, res) => {
         const userId = req.user.id;
@@ -19,11 +19,31 @@ router.get(
 
         const account = await getAccount(pool, userId);
 
+        const points = Number(account.points_balance);
+        const totalEarned = Number(account.total_earned);
+        
+        let nextTier = null;
+        let pointsToNextTier = null;
+        
+        if (totalEarned < 1000) {
+            nextTier = 'silver';
+            pointsToNextTier = 1000 - totalEarned;
+        } else if (totalEarned < 5000) {
+            nextTier = 'gold';
+            pointsToNextTier = 5000 - totalEarned;
+        } else if (totalEarned < 20000) {
+            nextTier = 'platinum';
+            pointsToNextTier = 20000 - totalEarned;
+        }
+
         return res.status(200).json({
             data: {
-                balance: account.points_balance,
+                points,
+                balance: points, // fallback
                 tier: account.tier,
-                totalEarned: account.total_earned,
+                totalEarned,
+                nextTier,
+                pointsToNextTier,
                 recentTransactions: account.recent_transactions || []
             }
         });
