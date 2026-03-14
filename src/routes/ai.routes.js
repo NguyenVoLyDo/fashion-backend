@@ -11,14 +11,13 @@ import { getRecentMessages, getUserOrdersForBot, saveMessage, getOrCreateConvers
 function sanitizeResponse(text) {
   if (!text) return ''
   let sanitized = text
-    // Loại bỏ code blocks JSON
-    .replace(/```json[\s\S]*?```/g, '')
-    // Loại bỏ các đoạn trông giống JSON object
-    .replace(/\{[\s\S]*?"id"[\s\S]*?\}/g, '')
-    // Loại bỏ tiếng Trung (CJK Unified Ideographs)
+    // Remove JSON artifacts
+    .replace(/```json[\s\S]*?```/gi, '')
+    .replace(/\{[\s\S]*?"id"[\s\S]*?\}/gi, '')
+    // Remove common system echos
+    .replace(/(NHIỆM VỤ:|QUY TẮC:|ĐỐI TƯỢNG:|Bối cảnh:|Hãy đóng vai).*/gsi, '')
+    // Remove Chinese characters
     .replace(/[\u4e00-\u9fa5]/g, '')
-    // Loại bỏ leaked system prompt parts if any
-    .replace(/(Bạn là trợ lý|Hãy trả lời bằng|NHIỆM VỤ:|QUY TẮC:).*/gi, '')
     .trim()
 
   return sanitized
@@ -140,6 +139,10 @@ router.post(
     await ollamaChatStream({
       system: buildSystemPrompt(req.user, orders),
       messages,
+      options: {
+        stop: ["<|endoftext|>", "NHIỆM VỤ:", "QUY TẮC:", "Khách:", "Bot:", "Assistant:"],
+        temperature: 0.3 // Lower temperature to reduce repetition/hallucination
+      },
       onChunk: async (text) => {
         fullResponse += text
         res.write(`data: ${JSON.stringify({ type: 'text', text: sanitizeResponse(fullResponse) })}\n\n`)
@@ -153,7 +156,8 @@ router.post(
             content: finalContent
           })
         }
-        res.write(`data: ${JSON.stringify({ type: 'text', text: finalContent })}\n\n`) // Send final sanitized version
+        // Send final chunk to let frontend know it's done rendering the last bit
+        res.write(`data: ${JSON.stringify({ type: 'text', text: finalContent })}\n\n`) 
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
         res.end()
       },

@@ -89,11 +89,16 @@ app.use(cookieParser());
 // ── Request logger ────────────────────────────────────────────────────────────
 app.use(logger);
 
-// ── Session ID (guest cart support — scoped to cart routes only) ───────────────
-app.use('/api/v1/cart', (req, res, next) => {
+// ── Session ID (guest support — works for both cart and AI) ─────────────
+app.use('/api/v1', (req, res, next) => {
     if (!req.cookies?.session_id) {
         const sid = crypto.randomUUID();
-        res.cookie('session_id', sid, { maxAge: 604800000, httpOnly: true, sameSite: 'none', secure: true });
+        res.cookie('session_id', sid, { 
+            maxAge: 604800000, 
+            httpOnly: true, 
+            sameSite: 'none', 
+            secure: true 
+        });
         req.sessionId = sid;
     } else {
         req.sessionId = req.cookies.session_id;
