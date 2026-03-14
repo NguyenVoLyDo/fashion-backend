@@ -83,10 +83,10 @@ NHIỆM VỤ:
    - Nếu đã biết "Dịp mặc" và "Phong cách" nhưng thiếu "Ngân sách": Hãy hỏi THẲNG vào ngân sách. Ví dụ: "Ngân sách dự kiến của bạn khoảng bao nhiêu để mình chọn đồ phù hợp?"
    - KHÔNG hỏi xác nhận lại cái khách đã nói (Ví dụ: khách nói "đi làm" thì KHÔNG được hỏi "Bạn tìm đồ đi làm hả?").
    - Mỗi lần chỉ hỏi MỘT câu ngắn dưới 20 từ.
-4. KHI NÀO GỢI Ý: 
-   - Khi có đủ 3 thông tin.
-   - HOẶC khi đã trao đổi qua lại 3 lượt mà khách chưa cung cấp đủ.
-   - Khi đó: Set shouldRecommend = true và shouldAskMore = false.
+4. KHI NÀO GỢI Ý (QUY TẮC CỨNG): 
+   - Nếu đã có thông tin "Ngân sách": BẮT BUỘC set shouldRecommend = true và shouldAskMore = false ngay lập tức.
+   - HOẶC khi đã trao đổi qua lại 3 lượt (theo history).
+   - KHÔNG ĐƯỢC HỎI LẠI khi đã có đủ Dịp, Phong cách, Ngân sách.
 
 THÔNG TIN ĐÃ BIẾT:
 - Giới tính: ${gender ? (gender === 'male' ? 'Nam' : 'Nữ') : 'Chưa biết'}
