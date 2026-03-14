@@ -3,12 +3,7 @@ import asyncHandler from '../middleware/async-handler.js'
 import optionalAuth from '../middleware/optional-auth.js'
 import pool from '../config/db.js'
 import { ollamaChatStream } from '../lib/ollama.js'
-import { Router } from 'express'
-import pool from '../config/db.js'
 import { getRecentMessages, getUserOrdersForBot, saveMessage, getOrCreateConversation } from '../queries/chat.queries.js'
-import asyncHandler from '../middleware/async-handler.js'
-import optionalAuth from '../middleware/optional-auth.js'
-import { ollamaChatStream } from '../lib/ollama.js'
 
 /**
  * Loại bỏ JSON, tiếng Trung và leaked instructions
@@ -26,7 +21,7 @@ function sanitizeResponse(text) {
     .replace(/(Bạn là trợ lý|Hãy trả lời bằng|NHIỆM VỤ:|QUY TẮC:).*/gi, '')
     .trim()
 
-  return sanitized || 'Xin lỗi, mình gặp chút trục trặc khi tạo câu trả lời. Bạn hỏi lại nhé!'
+  return sanitized
 }
 
 const router = Router()
@@ -140,9 +135,6 @@ router.post(
     let fullResponse = ''
 
     // Gửi conversationId về client ngay
-    res.write(`data: ${JSON.stringify({ type: 'conversation_id', conversationId })}\n\n`)
-
-    // Send conversationId first
     res.write(`data: ${JSON.stringify({ type: 'conversation_id', id: conversationId })}\n\n`)
 
     await ollamaChatStream({
@@ -153,13 +145,15 @@ router.post(
         res.write(`data: ${JSON.stringify({ type: 'text', text: sanitizeResponse(fullResponse) })}\n\n`)
       },
       onDone: async (full) => {
+        const finalContent = sanitizeResponse(full) || 'Xin lỗi, em gặp chút trục trặc khi tạo câu trả lời. Anh/chị thử lại nhé!'
         if (full) {
           await saveMessage(pool, {
             conversationId,
             role: 'assistant',
-            content: sanitizeResponse(full)
+            content: finalContent
           })
         }
+        res.write(`data: ${JSON.stringify({ type: 'text', text: finalContent })}\n\n`) // Send final sanitized version
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
         res.end()
       },
