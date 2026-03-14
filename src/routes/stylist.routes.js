@@ -53,7 +53,7 @@ function sanitizeResponse(text) {
   return clean
 }
 
-// System prompt cho Stylist Bot
+// System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
 function buildStylistPrompt(user, profile, purchaseHistory, availableCategories) {
   const age = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
   const gender = profile?.gender || null;
@@ -69,25 +69,46 @@ ${purchaseHistory.map(p =>
 ).join('\n')}`
     : '\nKhách chưa có lịch sử mua hàng.'
 
-  return `Bạn là chuyên gia tư vấn thời trang (Stylist AI) cho thương hiệu thời trang Việt Nam.
-NHIỆM VỤ:
-1. Tư vấn phong cách dựa trên thông tin khách hàng và xu hướng hiện nay.
-2. ĐỐI VỚI KHÁCH HÀNG ĐÃ CÓ THÔNG TIN (Giới tính, Độ tuổi): KHÔNG ĐƯỢC HỎI LẠI, hãy dùng thông tin đó để tư vấn ngay.
-3. LUÔN LUÔN đề xuất ít nhất 2-3 sản phẩm cụ thể từ danh sách "Sản phẩm có sẵn" bên dưới.
-4. Trình bày dưới dạng văn bản tiếng Việt tự nhiên, chuyên nghiệp. Không dùng JSON, không dùng tiếng Trung.
+  return `Bạn là Chuyên gia tư vấn thời trang cá nhân (Personal Stylist) cho thương hiệu thời trang Việt Nam.
 
-Thông tin khách hàng:
+NHIỆM VỤ:
+1. Tư vấn phong cách dựa trên nhu cầu của khách hàng.
+2. QUY TRÌNH HỎI (QUAN TRỌNG): Bạn phải thu thập đủ ít nhất 2 trong 3 thông tin: Dịp mặc (occasion), Phong cách (style), Ngân sách (budget) trước khi gợi ý sản phẩm.
+3. Nếu thiếu thông tin: Hãy hỏi khách. Mỗi lần chỉ hỏi MỘT câu ngắn gọn, thân thiện.
+   - Ví dụ: "Bạn đang tìm đồ cho dịp gì? Đi làm, dạo phố hay dự tiệc?"
+   - Ví dụ: "Bạn thích phong cách nào? Thanh lịch, tối giản hay năng động?"
+4. Nếu đã đủ thông tin (hoặc khách đã nói hết trong 1 tin nhắn): Set shouldRecommend = true và shouldAskMore = false.
+5. Nếu khách từ chối cung cấp: Set shouldRecommend = true để gợi ý dựa trên thông tin tối thiểu.
+
+THÔNG TIN ĐÃ BIẾT:
 - Giới tính: ${gender ? (gender === 'male' ? 'Nam' : 'Nữ') : 'Chưa biết'}
-- Độ tuổi: ${age ? `${age} tuổi` : 'Chưa biết'} (Khách sinh năm ${profile?.birthYear || '?'})
+- Độ tuổi: ${age ? `${age} tuổi` : 'Chưa biết'}
 ${historyContext}
 
-Danh mục sản phẩm có sẵn: ${availableCategories.join(', ')}
+Danh mục sản phẩm: ${availableCategories.join(', ')}
+
+PHẢI TRẢ VỀ DẠNG JSON với schema sau:
+{
+  "reply": "câu trả lời hoặc câu hỏi của bạn",
+  "shouldAskMore": boolean, // true nếu cần hỏi thêm
+  "collectedInfo": {
+    "occasion": "...", // đi làm / dạo phố / sự kiện / null
+    "style": "...", // tối giản / thanh lịch / năng động / null
+    "budget": number | null // ngân sách tối đa
+  },
+  "filters": {
+    "categorySlug": "...", // slug danh mục phù hợp nhất
+    "maxPrice": number | null,
+    "minPrice": number | null,
+    "shouldRecommend": boolean // true nếu sẵn sàng gợi ý sản phẩm
+  }
+}
 
 QUY TẮC:
-- Luôn dùng tiếng Việt, phong cách trẻ trung, sành điệu.
-- Xưng "mình", gọi khách là "bạn".
-- Không bịa sản phẩm — chỉ giới thiệu sản phẩm thật từ database.
-- Trả về kết quả dưới dạng JSON có cấu trúc.`
+- Luôn dùng tiếng Việt, xưng "mình", gọi khách là "bạn".
+- KHÔNG bịa sản phẩm.
+- Nếu gợi ý sản phẩm, hãy set shouldRecommend = true.
+- CHỈ TRẢ VỀ JSON.`
 }
 
 // POST /stylist/chat
@@ -104,13 +125,9 @@ router.post(
     const userId = req.user?.id ?? null
     const sessionId = req.sessionId ?? null
 
-    // Lấy hoặc tạo conversation cho Stylist
     const conversationId = await getOrCreateConversation(pool, { userId, sessionId, type: 'stylist' })
-
-    // Load history từ DB (ghi đè lịch sử truyền từ client để đảm bảo 10 message gần nhất)
     const dbHistory = await getRecentMessages(pool, conversationId, 10)
 
-    // Load profile, purchase history + categories
     const [profile, purchaseHistory, { rows: catRows }] = await Promise.all([
       userId ? getUserProfile(pool, userId) : Promise.resolve(null),
       userId ? getUserPurchaseHistory(pool, userId) : Promise.resolve([]),
@@ -120,99 +137,70 @@ router.post(
     const availableCategories = catRows.map(r => r.slug)
     const excludeIds = purchaseHistory.map(p => p.productId)
 
-    // Lưu message của user vào DB
     await saveMessage(pool, { conversationId, role: 'user', content: message })
 
-    // Bước 1: Hỏi Qwen để lấy reply + filters
-    const intentPrompt = `Dưới đây là một số ví dụ về cách phản hồi:
-
-VÍ DỤ 1:
-Khách: "Tôi muốn tìm áo sơ mi đi làm"
-Phản hồi: {
-  "reply": "Chào bạn! Một chiếc áo sơ mi chỉnh chu sẽ giúp bạn tự tin hơn rất nhiều ở công sở. Mình có một vài mẫu sơ mi vải linen thoáng mát hoặc cotton cao cấp rất hợp với bạn đó.",
-  "filters": {
-    "categorySlug": "ao-so-mi",
-    "searchTerm": "sơ mi",
-    "maxPrice": null,
-    "minPrice": null,
-    "shouldRecommend": true
-  }
-}
-
-VÍ DỤ 2:
-Khách: "Chào bạn"
-Phản hồi: {
-  "reply": "Chào bạn! Mình là Stylist AI của Fashion Store đây. Hôm nay mình có thể giúp gì cho bạn trong việc chọn đồ không nhỉ?",
-  "filters": {
-    "categorySlug": null,
-    "searchTerm": null,
-    "maxPrice": null,
-    "minPrice": null,
-    "shouldRecommend": false
-  }
-}
-
-Dựa trên các ví dụ trên, hãy xử lý tin nhắn sau. 
-LƯU Ý: CHỈ TRẢ VỀ JSON. TUYỆT ĐỐI KHÔNG DÙNG TIẾNG TRUNG. KHÔNG GIẢI THÍCH THÊM.
-
-Tin nhắn của khách: "${message}"`
- 
-    // Giữ nguyên logic prompt nhưng dùng dbHistory
     const messages = [
       ...dbHistory.map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: message },
     ]
 
     const raw = await ollamaChat({
-      system: buildStylistPrompt(req.user, profile, purchaseHistory, availableCategories) + 
-        '\nCHỈ TRẢ VỀ JSON. CẤM TIẾNG TRUNG (NO CHINESE characters).',
+      system: buildStylistPrompt(req.user, profile, purchaseHistory, availableCategories),
       messages,
       maxTokens: 512,
+      temperature: 0.5 // Tăng độ sáng tạo cho Stylist
     })
 
-    // Parse JSON — Ollama đôi khi wrap trong ```json ... ```
-    let parsed = { reply: raw, filters: { shouldRecommend: false } }
+    // Parse JSON
+    let parsed = { 
+      reply: raw, 
+      shouldAskMore: true,
+      filters: { shouldRecommend: false } 
+    }
+    
     try {
       const match = raw.match(/\{[\s\S]*\}/)
       if (match) {
-        parsed = JSON.parse(match[0])
-        // Đảm bảo categorySlug hợp lệ
+        const p = JSON.parse(match[0])
+        parsed = { ...parsed, ...p }
+        
+        // Validation
         if (parsed.filters?.categorySlug && !availableCategories.includes(parsed.filters.categorySlug)) {
           parsed.filters.categorySlug = null
         }
       }
-    } catch {
-      // fallback: dùng raw text
+    } catch (e) {
+      console.error('Stylist JSON Parse Error:', e)
+      parsed.reply = sanitizeResponse(raw)
     }
 
-    // Bước 2: Fetch sản phẩm nếu cần
+    // Fetch sản phẩm nếu đủ điều kiện
     let products = []
-    if (parsed.filters?.shouldRecommend) {
+    if (parsed.filters?.shouldRecommend && !parsed.shouldAskMore) {
       products = await getProductRecommendations(pool, {
         categorySlug: parsed.filters.categorySlug || undefined,
-        searchTerm: parsed.filters.searchTerm || undefined,
         maxPrice: parsed.filters.maxPrice || undefined,
         minPrice: parsed.filters.minPrice || undefined,
+        gender: profile?.gender || undefined,
         excludeProductIds: excludeIds,
         limit: 4,
       })
 
-      // Bước 3: Nếu có sản phẩm, gọi AI lần 2 để lồng ghép tên sản phẩm vào reply
       if (products.length > 0) {
         const productListStr = products.map(p => `- ${p.name} (giá: ${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
         const contextualPrompt = `Dưới đây là danh sách sản phẩm thật từ cửa hàng:
 ${productListStr}
 
-Hãy viết lại câu trả lời sau để giới thiệu khéo léo ít nhất 2 sản phẩm trên (gọi đúng tên sản phẩm). 
+Hãy viết lại câu trả lời sau để giới thiệu khéo léo ít nhất 2 sản phẩm trên. 
 Giữ phong cách chuyên nghiệp, thời trang và thân thiện. Không được bịa thêm sản phẩm khác. 
 Câu trả lời cũ: "${parsed.reply}"
 
-LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI, KHÔNG GIẢI THÍCH.`
+LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI.`
 
         const refinedReply = await ollamaChat({
-          system: buildStylistPrompt(req.user, profile, purchaseHistory, availableCategories) + '\nCHỈ TRẢ VỀ TEXT TIẾNG VIỆT.',
+          system: "Bạn là Stylist AI. Hãy viết lại câu trả lời dựa trên danh sách sản phẩm thật. CHỈ TRẢ VỀ TEXT.",
           messages: [
-            ...history.slice(-4),
+            ...messages.slice(-2),
             { role: 'user', content: contextualPrompt }
           ],
           maxTokens: 512
@@ -223,26 +211,24 @@ LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI, KHÔNG GIẢI THÍCH.`
         }
       }
     } else {
-      // Nếu không recommend gì cũng phải sanitize reply lần 1
-      parsed.reply = sanitizeResponse(parsed.reply || raw)
+      parsed.reply = sanitizeResponse(parsed.reply)
     }
 
-    // Lưu message bot vào DB
     await saveMessage(pool, { 
       conversationId, 
       role: 'assistant', 
       content: parsed.reply 
     })
 
-    // SSE streaming (dùng đồng nhất với Support Bot cho frontend)
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
 
-    // Gửi response
     res.write(`data: ${JSON.stringify({
       type: 'response',
-      text: parsed.reply || raw,
+      text: parsed.reply,
+      shouldAskMore: parsed.shouldAskMore,
+      collectedInfo: parsed.collectedInfo,
       products,
     })}\n\n`)
 

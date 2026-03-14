@@ -7,6 +7,7 @@ export async function getProductRecommendations(pool, {
   maxPrice,
   minPrice,
   searchTerm,
+  gender,
   excludeProductIds = [],
   limit = 4,
 }) {
@@ -17,6 +18,12 @@ export async function getProductRecommendations(pool, {
   if (categorySlug) {
     conditions.push(`c.slug = $${idx++}`)
     params.push(categorySlug)
+  }
+  if (gender) {
+    // Nếu có gender từ profile/filter, lọc theo category hoặc description (tùy schema, ở đây giả định lọc theo category name chứa gender hoặc description)
+    conditions.push(`(c.name ILIKE $${idx} OR p.description ILIKE $${idx})`)
+    params.push(gender === 'male' ? '%Nam%' : '%Nữ%')
+    idx++
   }
   if (maxPrice) {
     conditions.push(`p.base_price <= $${idx++}`)
@@ -46,9 +53,15 @@ export async function getProductRecommendations(pool, {
       p.base_price    AS "basePrice",
       c.name          AS "categoryName",
       img.url         AS "imageUrl",
-      COALESCE(r.avg_rating, 0) AS "avgRating"
+      COALESCE(r.avg_rating, 0) AS "avgRating",
+      v.id            AS "defaultVariantId"
     FROM products p
     JOIN categories c ON c.id = p.category_id
+    LEFT JOIN LATERAL (
+      SELECT id FROM product_variants
+      WHERE product_id = p.id AND stock_quantity > 0
+      LIMIT 1
+    ) v ON TRUE
     LEFT JOIN LATERAL (
       SELECT url FROM product_images
       WHERE product_id = p.id AND is_primary = TRUE
@@ -59,7 +72,10 @@ export async function getProductRecommendations(pool, {
       FROM reviews WHERE product_id = p.id
     ) r ON TRUE
     WHERE ${conditions.join(' AND ')}
-    ORDER BY RANDOM()
+    ORDER BY 
+      (img.url IS NOT NULL) DESC,
+      r.avg_rating DESC NULLS LAST,
+      RANDOM()
     LIMIT $${idx}
   `, params)
 
