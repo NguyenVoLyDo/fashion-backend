@@ -62,6 +62,11 @@ function buildStylistPrompt(user, profile, purchaseHistory, availableCategories)
     ? `\nThông tin khách hàng: ${gender ? `Giới tính ${gender === 'male' ? 'Nam' : 'Nữ'}` : ''}${age ? `, ${age} tuổi` : ''}.`
     : '\nThông tin khách hàng: Chưa có thông tin về tuổi và giới tính. Hãy hỏi khéo léo nếu cần.'
 
+  const currentInfoCtx = `\nTRẠNG THÁI THU THẬP THÔNG TIN HIỆN TẠI (ĐỪNG HỎI LẠI CÁI ĐÃ CÓ):
+- Dịp mặc: ${profile?.collectedInfo?.occasion || 'Chưa biết'}
+- Phong cách: ${profile?.collectedInfo?.style || 'Chưa biết'}
+- Ngân sách: ${profile?.collectedInfo?.budget || 'Chưa biết'}`
+
   const historyContext = purchaseHistory.length > 0
     ? `\nLịch sử mua hàng của khách:
 ${purchaseHistory.map(p =>
@@ -78,11 +83,12 @@ NHIỆM VỤ:
    - Ví dụ: "Bạn đang tìm đồ cho dịp gì? Đi làm, dạo phố hay dự tiệc?"
    - Ví dụ: "Bạn thích phong cách nào? Thanh lịch, tối giản hay năng động?"
 4. Nếu đã đủ thông tin (hoặc khách đã nói hết trong 1 tin nhắn): Set shouldRecommend = true và shouldAskMore = false.
-5. Nếu khách từ chối cung cấp: Set shouldRecommend = true để gợi ý dựa trên thông tin tối thiểu.
+5.- Nếu khách từ chối cung cấp hoặc bạn đã hỏi đủ: Set shouldRecommend = true để gợi ý dựa trên thông tin tối thiểu.
+- Quan trọng: Dựa vào "TRẠNG THÁI THU THẬP THÔNG TIN HIỆN TẠI" để tránh hỏi trùng lặp. Mỗi lần chỉ hỏi 1 câu ngắn gọn về cái còn thiếu.
 
 THÔNG TIN ĐÃ BIẾT:
 - Giới tính: ${gender ? (gender === 'male' ? 'Nam' : 'Nữ') : 'Chưa biết'}
-- Độ tuổi: ${age ? `${age} tuổi` : 'Chưa biết'}
+- Độ tuổi: ${age ? `${age} tuổi` : 'Chưa biết'}${currentInfoCtx}
 ${historyContext}
 
 Danh mục sản phẩm: ${availableCategories.join(', ')}
@@ -116,7 +122,7 @@ router.post(
   '/chat',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    const { message, history = [] } = req.body
+    const { message, collectedInfo = {} } = req.body
 
     if (!message?.trim()) {
       return res.status(400).json({ error: 'Message is required', code: 'NO_MESSAGE' })
@@ -145,7 +151,7 @@ router.post(
     ]
 
     const raw = await ollamaChat({
-      system: buildStylistPrompt(req.user, profile, purchaseHistory, availableCategories),
+      system: buildStylistPrompt(req.user, { ...profile, collectedInfo }, purchaseHistory, availableCategories),
       messages,
       maxTokens: 512,
       temperature: 0.5 // Tăng độ sáng tạo cho Stylist
