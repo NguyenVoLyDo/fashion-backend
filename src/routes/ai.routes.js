@@ -14,15 +14,20 @@ const router = Router()
 
 // System prompt cho Support Bot
 function buildSystemPrompt(user, orders) {
-  const orderContext = orders.length > 0
-    ? `\n\nĐơn hàng gần đây của khách:\n${orders.map(o => `
+  let orderContext = ''
+  if (!user) {
+    orderContext = '\n\nKhách chưa đăng nhập. Bạn không có quyền truy cập vào bất kỳ thông tin đơn hàng nào. Tuyệt đối không được đoán hoặc bịa ra mã đơn hàng, sản phẩm hay trạng thái.'
+  } else if (orders.length === 0) {
+    orderContext = '\n\nKhách đã đăng nhập nhưng chưa có đơn hàng nào trong hệ thống. Tuyệt đối không được bịa ra đơn hàng.'
+  } else {
+    orderContext = `\n\nĐơn hàng gần đây của khách (CHỈ ĐƯỢC DÙNG DATA NÀY):\n${orders.map(o => `
 - Mã đơn: ${o.orderNo}
   Trạng thái: ${translateStatus(o.status)}
   Tổng tiền: ${Number(o.total).toLocaleString('vi-VN')}₫
   Ngày đặt: ${new Date(o.createdAt).toLocaleDateString('vi-VN')}
   Sản phẩm: ${o.items.map(i => `${i.name} (${i.color}/${i.size}) x${i.quantity}`).join(', ')}
 `).join('')}`
-    : '\n\nKhách chưa có đơn hàng nào.'
+  }
 
   const userContext = user
     ? `\nKhách hàng đang đăng nhập: ${user.fullName || user.email}`
@@ -49,12 +54,16 @@ TRẠNG THÁI ĐƠN HÀNG:
 - Chờ xác nhận → Đã xác nhận → Đang xử lý → Đang giao → Đã giao → Hoàn thành
 - Huỷ đơn chỉ được khi trạng thái "Chờ xác nhận"
 
-QUY TẮC TRẢ LỜI:
-- Luôn dùng tiếng Việt, thân thiện, ngắn gọn
-- Xưng "em", gọi khách là "anh/chị"
-- Nếu không biết → hướng dẫn liên hệ hotline: 1800-xxxx
-- Không bịa thông tin về đơn hàng không có trong context
-- Trả lời tối đa 3-4 câu, trừ khi cần giải thích chi tiết`
+QUY TẮC TRẢ LỜI (TUYỆT ĐỐI TUÂN THỦ):
+- Luôn dùng tiếng Việt, thân thiện, ngắn gọn.
+- Xưng "em", gọi khách là "anh/chị".
+- KHÔNG BAO GIỜ bịa thông tin về đơn hàng (mã đơn, trạng thái, sản phẩm) không có trong context.
+- Nếu khách hỏi về một đơn hàng cụ thể mà không có trong context -> Trả lời rõ là "Em không tìm thấy thông tin đơn hàng này trong hệ thống".
+- Nếu khách chưa đăng nhập và hỏi về đơn hàng -> Yêu cầu khách đăng nhập để kiểm tra.
+- Nếu khách đã đăng nhập nhưng không có đơn hàng -> Thông báo khách chưa có đơn hàng nào.
+- Nếu không biết thông tin khác -> hướng dẫn liên hệ hotline: 1800-xxxx.
+- Trả lời tối đa 3-4 câu, trừ khi cần giải thích chi tiết.
+- Không được đoán, không được "có lẽ", "chắc là" về tình trạng đơn hàng.`
 }
 
 function translateStatus(status) {
