@@ -12,22 +12,26 @@ ON CONFLICT (slug) DO NOTHING;
 -- Áo Sơ Mi
 INSERT INTO products (category_id, name, slug, description, base_price, is_active) VALUES
 ((SELECT id FROM categories WHERE slug = 'ao-so-mi'), 'Áo Sơ Mi Trắng Công Sở', 'ao-so-mi-trang-cong-so', 'Áo sơ mi trắng chất liệu cotton cao cấp, thoáng mát, phong cách lịch lãm.', 450000, true),
-((SELECT id FROM categories WHERE slug = 'ao-so-mi'), 'Áo Sơ Mi Flannel Caro', 'ao-so-mi-flannel-caro', 'Áo sơ mi flannel họa tiết caro trẻ trung, phù hợp mặc khoác ngoài.', 380000, true);
+((SELECT id FROM categories WHERE slug = 'ao-so-mi'), 'Áo Sơ Mi Flannel Caro', 'ao-so-mi-flannel-caro', 'Áo sơ mi flannel họa tiết caro trẻ trung, phù hợp mặc khoác ngoài.', 380000, true)
+ON CONFLICT (slug) DO NOTHING;
 
 -- Quần Jean
 INSERT INTO products (category_id, name, slug, description, base_price, is_active) VALUES
 ((SELECT id FROM categories WHERE slug = 'quan-jean'), 'Quần Jean Slim Fit Xanh Đậm', 'quan-jean-slim-fit-xanh', 'Quần jean form slim fit tôn dáng, chất denim co giãn tốt.', 550000, true),
-((SELECT id FROM categories WHERE slug = 'quan-jean'), 'Quần Jean Rách Gối Cá Tính', 'quan-jean-rach-goi', 'Quần jean rách gối phong cách bụi bặm, thời trang đường phố.', 620000, true);
+((SELECT id FROM categories WHERE slug = 'quan-jean'), 'Quần Jean Rách Gối Cá Tính', 'quan-jean-rach-goi', 'Quần jean rách gối phong cách bụi bặm, thời trang đường phố.', 620000, true)
+ON CONFLICT (slug) DO NOTHING;
 
 -- Váy & Đầm
 INSERT INTO products (category_id, name, slug, description, base_price, is_active) VALUES
 ((SELECT id FROM categories WHERE slug = 'vay-dam'), 'Đầm Dự Tiệc Trễ Vai', 'dam-du-tiec-tre-vai', 'Đầm dự tiệc thiết kế trễ vai sang trọng, quyến rũ cho phái đẹp.', 850000, true),
-((SELECT id FROM categories WHERE slug = 'vay-dam'), 'Chân Váy Midi Xếp Ly', 'chan-vay-midi-xep-ly', 'Chân váy midi xếp ly nhẹ nhàng, dễ dàng phối hợp với nhiều kiểu áo.', 320000, true);
+((SELECT id FROM categories WHERE slug = 'vay-dam'), 'Chân Váy Midi Xếp Ly', 'chan-vay-midi-xep-ly', 'Chân váy midi xếp ly nhẹ nhàng, dễ dàng phối hợp với nhiều kiểu áo.', 320000, true)
+ON CONFLICT (slug) DO NOTHING;
 
 -- Phụ Kiện
 INSERT INTO products (category_id, name, slug, description, base_price, is_active) VALUES
 ((SELECT id FROM categories WHERE slug = 'phu-kien'), 'Thắt Lưng Da Cao Cấp', 'that-lung-da-cao-cap', 'Thắt lưng làm từ da thật, khóa kim loại không gỉ bền đẹp.', 250000, true),
-((SELECT id FROM categories WHERE slug = 'phu-kien'), 'Mũ Lưỡi Trai Unisex', 'mu-luoi-trai-unisex', 'Mũ lưỡi trai phong cách năng động, bảo vệ bạn khỏi ánh nắng.', 150000, true);
+((SELECT id FROM categories WHERE slug = 'phu-kien'), 'Mũ Lưỡi Trai Unisex', 'mu-luoi-trai-unisex', 'Mũ lưỡi trai phong cách năng động, bảo vệ bạn khỏi ánh nắng.', 150000, true)
+ON CONFLICT (slug) DO NOTHING;
 
 -- Thêm Ảnh cho tất cả sản phẩm mới (Dùng ảnh từ Unsplash)
 INSERT INTO product_images (product_id, url, is_primary) VALUES

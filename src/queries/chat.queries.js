@@ -1,34 +1,34 @@
 /**
  * Tìm hoặc tạo conversation mới
  */
-export async function getOrCreateConversation(pool, { userId, sessionId }) {
+export async function getOrCreateConversation(pool, { userId, sessionId, type = 'support' }) {
   if (userId) {
     const { rows } = await pool.query(
       `SELECT id FROM chat_conversations
-       WHERE user_id = $1
+       WHERE user_id = $1 AND type = $2
        ORDER BY updated_at DESC LIMIT 1`,
-      [userId]
+      [userId, type]
     )
     if (rows[0]) return rows[0].id
-
+ 
     const { rows: created } = await pool.query(
-      `INSERT INTO chat_conversations (user_id) VALUES ($1) RETURNING id`,
-      [userId]
+      `INSERT INTO chat_conversations (user_id, type) VALUES ($1, $2) RETURNING id`,
+      [userId, type]
     )
     return created[0].id
   }
 
   const { rows } = await pool.query(
     `SELECT id FROM chat_conversations
-     WHERE session_id = $1
+     WHERE session_id = $1 AND type = $2
      ORDER BY updated_at DESC LIMIT 1`,
-    [sessionId]
+    [sessionId, type]
   )
   if (rows[0]) return rows[0].id
 
   const { rows: created } = await pool.query(
-    `INSERT INTO chat_conversations (session_id) VALUES ($1) RETURNING id`,
-    [sessionId]
+    `INSERT INTO chat_conversations (session_id, type) VALUES ($1, $2) RETURNING id`,
+    [sessionId, type]
   )
   return created[0].id
 }
@@ -38,7 +38,7 @@ export async function getOrCreateConversation(pool, { userId, sessionId }) {
  */
 export async function getRecentMessages(pool, conversationId, limit = 10) {
   const { rows } = await pool.query(
-    `SELECT role, content FROM chat_messages
+    `SELECT id, role, content, created_at AS "createdAt" FROM chat_messages
      WHERE conversation_id = $1
      ORDER BY created_at DESC LIMIT $2`,
     [conversationId, limit]

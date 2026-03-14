@@ -28,7 +28,8 @@ function hashToken(raw) {
 function setRefreshCookie(res, refreshToken) {
     res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
-        sameSite: 'strict',
+        sameSite: 'none', // Allow cross-site for Vercel -> Railway
+        secure: true,      // REQUIRED for sameSite: 'none'
         maxAge: SEVEN_DAYS_MS,
     });
 }
@@ -116,7 +117,11 @@ router.post(
             await authService.logout(hashToken(raw));
         }
 
-        res.clearCookie('refresh_token', { httpOnly: true, sameSite: 'strict' });
+        res.clearCookie('refresh_token', { 
+            httpOnly: true, 
+            sameSite: 'none', 
+            secure: true 
+        });
 
         return res.status(200).json({ data: { message: 'Logged out' } });
     }),

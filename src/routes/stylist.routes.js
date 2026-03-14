@@ -8,8 +8,50 @@ import {
   getUserPurchaseHistory,
 } from '../queries/stylist.queries.js'
 import { getUserProfile } from '../queries/profile.queries.js'
+import { 
+  getOrCreateConversation, 
+  getRecentMessages, 
+  saveMessage 
+} from '../queries/chat.queries.js'
 
 const router = Router()
+
+/**
+ * Filter out JSON, Chinese, and leaked system instructions
+ */
+function sanitizeResponse(text) {
+  if (!text) return ''
+  
+  // 1. Remove JSON blocks
+  let clean = text.replace(/```json[\s\S]*?```/g, '')
+  clean = clean.replace(/\{[\s\S]*?\}/g, '')
+  
+  // 2. Remove Chinese characters
+  clean = clean.replace(/[\u4e00-\u9fa5]/g, '')
+  
+  // 3. Strip leaked system keywords/artifacts
+  const artifacts = [
+    /LƯU Ý:/gi,
+    /QUY TẮC:/gi,
+    /NHIỆM VỤ:/gi,
+    /Hãy viết lại câu trả lời sau/gi,
+    /CHỈ TRẢ VỀ TEXT/gi,
+    /JSON output/gi
+  ]
+  artifacts.forEach(regex => {
+    clean = clean.replace(regex, '')
+  })
+  
+  // 4. Final trim and cleanup
+  clean = clean.trim()
+  
+  // Fallback if empty after cleaning
+  if (!clean || clean.length < 5) {
+    return "Mình đã tìm được một vài gợi ý tuyệt vời cho bạn bên dưới nhé!"
+  }
+  
+  return clean
+}
 
 // System prompt cho Stylist Bot
 function buildStylistPrompt(user, profile, purchaseHistory, availableCategories) {
@@ -27,26 +69,23 @@ ${purchaseHistory.map(p =>
 ).join('\n')}`
     : '\nKhách chưa có lịch sử mua hàng.'
 
-  const userCtx = user
-    ? `\nKhách hàng: ${user.fullName || user.email}`
-    : '\nKhách chưa đăng nhập.'
+  return `Bạn là chuyên gia tư vấn thời trang (Stylist AI) cho thương hiệu thời trang Việt Nam.
+NHIỆM VỤ:
+1. Tư vấn phong cách dựa trên thông tin khách hàng và xu hướng hiện nay.
+2. ĐỐI VỚI KHÁCH HÀNG ĐÃ CÓ THÔNG TIN (Giới tính, Độ tuổi): KHÔNG ĐƯỢC HỎI LẠI, hãy dùng thông tin đó để tư vấn ngay.
+3. LUÔN LUÔN đề xuất ít nhất 2-3 sản phẩm cụ thể từ danh sách "Sản phẩm có sẵn" bên dưới.
+4. Trình bày dưới dạng văn bản tiếng Việt tự nhiên, chuyên nghiệp. Không dùng JSON, không dùng tiếng Trung.
 
-  return `Bạn là Fashion Stylist AI của Fashion Store — chuyên tư vấn phong cách và đề xuất sản phẩm.
-${userCtx}
+Thông tin khách hàng:
+- Giới tính: ${gender ? (gender === 'male' ? 'Nam' : 'Nữ') : 'Chưa biết'}
+- Độ tuổi: ${age ? `${age} tuổi` : 'Chưa biết'} (Khách sinh năm ${profile?.birthYear || '?'})
 ${historyContext}
 
 Danh mục sản phẩm có sẵn: ${availableCategories.join(', ')}
 
-NHIỆM VỤ:
-1. Phân tích phong cách phù hợp dựa trên độ tuổi (${age || 'chưa rõ'}) và giới tính (${gender || 'chưa rõ'}).
-2. Hỏi 1-2 câu ngắn để hiểu thêm nhu cầu (dịp mặc, sở thích, ngân sách).
-3. Đề xuất sản phẩm phù hợp bằng JSON output. Ưu tiên sản phẩm nam cho khách nam, nữ cho khách nữ. Nếu tuổi trẻ (dưới 30) -> phong cách năng động, trendy. Nếu trên 30 -> phong cách thanh lịch, công sở.
-4. Giới thiệu sản phẩm một cách tự nhiên, thời trang.
-
 QUY TẮC:
 - Luôn dùng tiếng Việt, phong cách trẻ trung, sành điệu.
 - Xưng "mình", gọi khách là "bạn".
-- Nếu chưa có thông tin giới tính/tuổi -> hãy hỏi khách thay vì tự đoán.
 - Không bịa sản phẩm — chỉ giới thiệu sản phẩm thật từ database.
 - Trả về kết quả dưới dạng JSON có cấu trúc.`
 }
@@ -63,6 +102,13 @@ router.post(
     }
 
     const userId = req.user?.id ?? null
+    const sessionId = req.sessionId ?? null
+
+    // Lấy hoặc tạo conversation cho Stylist
+    const conversationId = await getOrCreateConversation(pool, { userId, sessionId, type: 'stylist' })
+
+    // Load history từ DB (ghi đè lịch sử truyền từ client để đảm bảo 10 message gần nhất)
+    const dbHistory = await getRecentMessages(pool, conversationId, 10)
 
     // Load profile, purchase history + categories
     const [profile, purchaseHistory, { rows: catRows }] = await Promise.all([
@@ -73,6 +119,9 @@ router.post(
 
     const availableCategories = catRows.map(r => r.slug)
     const excludeIds = purchaseHistory.map(p => p.productId)
+
+    // Lưu message của user vào DB
+    await saveMessage(pool, { conversationId, role: 'user', content: message })
 
     // Bước 1: Hỏi Qwen để lấy reply + filters
     const intentPrompt = `Dưới đây là một số ví dụ về cách phản hồi:
@@ -107,14 +156,17 @@ Dựa trên các ví dụ trên, hãy xử lý tin nhắn sau.
 LƯU Ý: CHỈ TRẢ VỀ JSON. TUYỆT ĐỐI KHÔNG DÙNG TIẾNG TRUNG. KHÔNG GIẢI THÍCH THÊM.
 
 Tin nhắn của khách: "${message}"`
+ 
+    // Giữ nguyên logic prompt nhưng dùng dbHistory
+    const messages = [
+      ...dbHistory.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user', content: message },
+    ]
 
     const raw = await ollamaChat({
       system: buildStylistPrompt(req.user, profile, purchaseHistory, availableCategories) + 
         '\nCHỈ TRẢ VỀ JSON. CẤM TIẾNG TRUNG (NO CHINESE characters).',
-      messages: [
-        ...history.slice(-6),
-        { role: 'user', content: intentPrompt },
-      ],
+      messages,
       maxTokens: 512,
     })
 
@@ -144,7 +196,43 @@ Tin nhắn của khách: "${message}"`
         excludeProductIds: excludeIds,
         limit: 4,
       })
+
+      // Bước 3: Nếu có sản phẩm, gọi AI lần 2 để lồng ghép tên sản phẩm vào reply
+      if (products.length > 0) {
+        const productListStr = products.map(p => `- ${p.name} (giá: ${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
+        const contextualPrompt = `Dưới đây là danh sách sản phẩm thật từ cửa hàng:
+${productListStr}
+
+Hãy viết lại câu trả lời sau để giới thiệu khéo léo ít nhất 2 sản phẩm trên (gọi đúng tên sản phẩm). 
+Giữ phong cách chuyên nghiệp, thời trang và thân thiện. Không được bịa thêm sản phẩm khác. 
+Câu trả lời cũ: "${parsed.reply}"
+
+LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI, KHÔNG GIẢI THÍCH.`
+
+        const refinedReply = await ollamaChat({
+          system: buildStylistPrompt(req.user, profile, purchaseHistory, availableCategories) + '\nCHỈ TRẢ VỀ TEXT TIẾNG VIỆT.',
+          messages: [
+            ...history.slice(-4),
+            { role: 'user', content: contextualPrompt }
+          ],
+          maxTokens: 512
+        })
+        
+        if (refinedReply && refinedReply.trim().length > 10) {
+          parsed.reply = sanitizeResponse(refinedReply)
+        }
+      }
+    } else {
+      // Nếu không recommend gì cũng phải sanitize reply lần 1
+      parsed.reply = sanitizeResponse(parsed.reply || raw)
     }
+
+    // Lưu message bot vào DB
+    await saveMessage(pool, { 
+      conversationId, 
+      role: 'assistant', 
+      content: parsed.reply 
+    })
 
     // SSE streaming (dùng đồng nhất với Support Bot cho frontend)
     res.setHeader('Content-Type', 'text/event-stream')

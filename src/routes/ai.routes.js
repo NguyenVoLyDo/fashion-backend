@@ -3,12 +3,31 @@ import asyncHandler from '../middleware/async-handler.js'
 import optionalAuth from '../middleware/optional-auth.js'
 import pool from '../config/db.js'
 import { ollamaChatStream } from '../lib/ollama.js'
-import {
-  getOrCreateConversation,
-  getRecentMessages,
-  saveMessage,
-  getUserOrdersForBot,
-} from '../queries/chat.queries.js'
+import { Router } from 'express'
+import pool from '../config/db.js'
+import { getRecentMessages, getUserOrdersForBot, saveMessage, getOrCreateConversation } from '../queries/chat.queries.js'
+import asyncHandler from '../middleware/async-handler.js'
+import optionalAuth from '../middleware/optional-auth.js'
+import { ollamaChatStream } from '../lib/ollama.js'
+
+/**
+ * Loại bỏ JSON, tiếng Trung và leaked instructions
+ */
+function sanitizeResponse(text) {
+  if (!text) return ''
+  let sanitized = text
+    // Loại bỏ code blocks JSON
+    .replace(/```json[\s\S]*?```/g, '')
+    // Loại bỏ các đoạn trông giống JSON object
+    .replace(/\{[\s\S]*?"id"[\s\S]*?\}/g, '')
+    // Loại bỏ tiếng Trung (CJK Unified Ideographs)
+    .replace(/[\u4e00-\u9fa5]/g, '')
+    // Loại bỏ leaked system prompt parts if any
+    .replace(/(Bạn là trợ lý|Hãy trả lời bằng|NHIỆM VỤ:|QUY TẮC:).*/gi, '')
+    .trim()
+
+  return sanitized || 'Xin lỗi, mình gặp chút trục trặc khi tạo câu trả lời. Bạn hỏi lại nhé!'
+}
 
 const router = Router()
 
@@ -96,7 +115,7 @@ router.post(
 
     // Lấy hoặc tạo conversation
     const conversationId = existingConvId
-      || await getOrCreateConversation(pool, { userId, sessionId })
+      || await getOrCreateConversation(pool, { userId, sessionId, type: 'support' })
 
     // Load history + user orders
     const [history, orders] = await Promise.all([
@@ -123,20 +142,24 @@ router.post(
     // Gửi conversationId về client ngay
     res.write(`data: ${JSON.stringify({ type: 'conversation_id', conversationId })}\n\n`)
 
+    // Send conversationId first
+    res.write(`data: ${JSON.stringify({ type: 'conversation_id', id: conversationId })}\n\n`)
+
     await ollamaChatStream({
       system: buildSystemPrompt(req.user, orders),
       messages,
-      maxTokens: 1024,
       onChunk: async (text) => {
-        res.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`)
         fullResponse += text
+        res.write(`data: ${JSON.stringify({ type: 'text', text: sanitizeResponse(fullResponse) })}\n\n`)
       },
       onDone: async (full) => {
-        await saveMessage(pool, {
-          conversationId,
-          role: 'assistant',
-          content: full,
-        })
+        if (full) {
+          await saveMessage(pool, {
+            conversationId,
+            role: 'assistant',
+            content: sanitizeResponse(full)
+          })
+        }
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
         res.end()
       },
@@ -151,12 +174,13 @@ router.get(
   asyncHandler(async (req, res) => {
     const userId = req.user?.id ?? null
     const sessionId = req.sessionId ?? null
+    const type = req.query.type || 'support'
 
     const { rows } = await pool.query(
       userId
-        ? `SELECT id FROM chat_conversations WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`
-        : `SELECT id FROM chat_conversations WHERE session_id = $1 ORDER BY updated_at DESC LIMIT 1`,
-      [userId ?? sessionId]
+        ? `SELECT id FROM chat_conversations WHERE user_id = $1 AND type = $2 ORDER BY updated_at DESC LIMIT 1`
+        : `SELECT id FROM chat_conversations WHERE session_id = $1 AND type = $2 ORDER BY updated_at DESC LIMIT 1`,
+      [userId ?? sessionId, type]
     )
 
     if (!rows[0]) return res.json({ data: { messages: [], conversationId: null } })
