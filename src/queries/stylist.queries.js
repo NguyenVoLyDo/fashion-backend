@@ -59,7 +59,7 @@ export async function getProductRecommendations(pool, {
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN LATERAL (
       SELECT id FROM product_variants
-      WHERE product_id = p.id AND stock_quantity > 0
+      WHERE product_id = p.id AND stock > 0
       LIMIT 1
     ) v ON TRUE
     LEFT JOIN LATERAL (
