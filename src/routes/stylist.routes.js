@@ -79,16 +79,17 @@ ${profileCtx}${historyContext}
 - Ngân sách: ${budget ? budget.toLocaleString('vi-VN') + 'đ' : 'Chưa biết'}
 
 🚩 QUY TẮC CỨNG:
-1. Nếu Giới tính là "Chưa biết" và Đối tượng là "bạn gái/vợ/mẹ/con gái" -> set targetGender: "female".
-2. Nếu Giới tính là "Chưa biết" và Đối tượng là "bạn trai/chồng/ba/con trai" -> set targetGender: "male".
-3. Nếu Giới tính là "Chưa biết" và Đối tượng là "bản thân" -> dùng giới tính chủ tài khoản.
-4. Nếu THIẾU thông tin -> hỏi 1 câu cực ngắn (VD: "Bạn dự định mua trong khoảng bao nhiêu tiền?").
-5. Nếu ĐÃ CÓ Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
-6. Ngân sách "1 triệu" = 1000000. KHÔNG nhầm thành 1 tỷ.
+1. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái/nam hay nữ?".
+2. Nếu Đối tượng là "Bạn gái/Vợ" -> set targetGender: "female".
+3. Nếu Đối tượng là "Bạn trai/Chồng" -> set targetGender: "male".
+4. TUYỆT ĐỐI KHÔNG hỏi lại Dịp/Phong cách nếu đã có trong TRẠNG THÁI HIỆN TẠI.
+5. Luôn xác định xong Dịp & Phong cách TRƯỚC KHI hỏi Ngân sách.
+6. Nếu đã có Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
+7. Ngân sách "1 triệu" = 1000000. KHÔNG nhầm thành 1 tỷ.
 
 PHẢI TRẢ VỀ JSON:
 {
-  "reply": "câu trả lời ngắn gọn",
+  "reply": "câu trả lời cực ngắn",
   "shouldAskMore": boolean, 
   "collectedInfo": {
     "recipientDescription": "...",
@@ -103,6 +104,7 @@ PHẢI TRẢ VỀ JSON:
     "shouldRecommend": boolean 
   }
 }`
+}
 }
 
 // POST /stylist/chat
