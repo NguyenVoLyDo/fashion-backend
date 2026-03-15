@@ -28,7 +28,10 @@ function sanitizeResponse(text) {
   // 2. Remove Chinese characters & Japanese/Korean if any
   clean = clean.replace(/[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/g, '')
   
-  // 3. Remove weird punctuation artifacts like full-width question marks
+  // 3. Remove AI control tokens (e.g. <|im_start|>)
+  clean = clean.replace(/<\|.*?\|>/g, '')
+  
+  // 4. Remove weird punctuation artifacts like full-width question marks
   clean = clean.replace(/？/g, '?').replace(/：/g, ':')
   
   // 4. Strip common leaked system keywords and artifacts
