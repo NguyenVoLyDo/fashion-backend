@@ -22,30 +22,30 @@ const router = Router()
 function sanitizeResponse(text) {
   if (!text) return ''
   
-  // 1. Remove JSON blocks
-  let clean = text.replace(/```json[\s\S]*?```/g, '')
+  // 1. Remove everything from the first '{' to the end of the string
+  // This is the most reliable way to remove JSON blocks often placed at the end
+  let clean = text.split('{')[0]
+  
+  // 2. Remove JSON-like artifacts if any remain
+  clean = clean.replace(/```json[\s\S]*?```/g, '')
   clean = clean.replace(/\{[\s\S]*?\}/g, '')
   
-  // 2. Remove Chinese characters
+  // 3. Remove Chinese characters
   clean = clean.replace(/[\u4e00-\u9fa5]/g, '')
   
-  // 3. Strip leaked system keywords/artifacts
+  // 4. Strip common leaked system keywords and trailing punctuation artifacts
   const artifacts = [
-    /LƯU Ý:/gi,
-    /QUY TẮC:/gi,
-    /NHIỆM VỤ:/gi,
-    /Hãy viết lại câu trả lời sau/gi,
-    /CHỈ TRẢ VỀ TEXT/gi,
-    /JSON output/gi
+    /LƯU Ý:/gi, /QUY TẮC:/gi, /NHIỆM VỤ:/gi, /JSON output/gi,
+    /Hãy viết lại/gi, /CHỈ TRẢ VỀ TEXT/gi,
+    /,\s*$/g, // Trailing comma
+    /,\s*"filters".*$/gi // Trailing filter artifact
   ]
   artifacts.forEach(regex => {
     clean = clean.replace(regex, '')
   })
   
-  // 4. Final trim and cleanup
   clean = clean.trim()
   
-  // Fallback if empty after cleaning
   if (!clean || clean.length < 5) {
     return "Mình đã tìm được một vài gợi ý tuyệt vời cho bạn bên dưới nhé!"
   }
