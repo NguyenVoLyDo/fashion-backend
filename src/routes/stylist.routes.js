@@ -135,7 +135,7 @@ function extractCollectedInfo(messages) {
     }
   })
 
-  return info
+  return { info, isNewRequest }
 }
 
 // System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
@@ -225,7 +225,7 @@ router.post(
     ]
 
     // 1. Tự động extract thông tin từ history (JS side)
-    const historyInfo = extractCollectedInfo(messagesForHistory)
+    const { info: historyInfo, isNewRequest } = extractCollectedInfo(messagesForHistory)
 
     // 2. Fetch dữ liệu cơ bản
     const [profile, purchaseHistory, { rows: catRows }] = await Promise.all([
@@ -270,9 +270,15 @@ router.post(
 
     // 4. FALLBACK & SAFETY VALVE
     // Cập nhật collectedInfo dựa trên cả JS extraction và AI parsing
+    // Nếu là yêu cầu mới (isNewRequest) -> Ưu tiên JS extraction cho occasion/style (vì JS đã reset chúng)
     const finalInfo = {
       ...historyInfo,
-      ...(parsed.collectedInfo || {}) // Nếu AI có parse thêm được gì mới
+      ...(parsed.collectedInfo || {}) 
+    }
+
+    if (isNewRequest) {
+      finalInfo.occasion = historyInfo.occasion;
+      finalInfo.style = historyInfo.style;
     }
 
     const infoCount = Object.values(finalInfo).filter(v => v !== null && v !== undefined && v !== '').length
@@ -290,9 +296,9 @@ router.post(
     
     if (isReadyToRecommend) {
       // Logic xác định target gender cho filter
-      let filterGender = parsed.filters?.targetGender || parsed.collectedInfo?.targetGender || collectedInfo.targetGender;
+      let filterGender = parsed.filters?.targetGender || parsed.collectedInfo?.targetGender || finalInfo.targetGender;
       
-      const recipient = (parsed.collectedInfo?.recipientDescription || collectedInfo.recipientDescription || '').toLowerCase();
+      const recipient = (finalInfo.recipientDescription || '').toLowerCase();
       
       // Nếu không có thông tin giới tính đích mà là mua cho bản thân hoặc chưa rõ đối tượng, dùng giới tính profile
       if (!filterGender) {
