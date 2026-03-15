@@ -88,7 +88,8 @@ ${profileCtx}${historyContext}
 4. Phản hồi phải tự nhiên, sử dụng tiếng Việt có dấu chuẩn xác (VD: "vợ" thay vì "vo").
 5. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
 6. Nếu đã có Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
-7. Đảm bảo "reply" dẫn dắt mượt mà vào sản phẩm nếu shouldRecommend là true.
+7. **QUY TẮC GIỚI TÍNH**: Nếu mua cho bản thân, TUYỆT ĐỐI KHÔNG gợi ý sản phẩm trái ngược với giới tính trong profile (ví dụ: profile Nam không gợi ý váy/đầm).
+8. Đảm bảo "reply" dẫn dắt mượt mà vào sản phẩm nếu shouldRecommend là true.
 
 PHẢI TRẢ VỀ JSON:
 {
@@ -226,9 +227,17 @@ router.post(
       
       const recipient = (parsed.collectedInfo?.recipientDescription || collectedInfo.recipientDescription || '').toLowerCase();
       
-      // Nếu không có thông tin giới tính đích mà là mua cho bản thân, dùng giới tính profile
-      if (!filterGender && (recipient.includes('bản thân') || recipient.includes('mình') || recipient.includes('tôi'))) {
-        filterGender = profile?.gender;
+      // Nếu không có thông tin giới tính đích mà là mua cho bản thân hoặc chưa rõ đối tượng, dùng giới tính profile
+      if (!filterGender) {
+        const isForSelf = !recipient || 
+                          recipient === 'chưa biết' || 
+                          recipient.includes('bản thân') || 
+                          recipient.includes('mình') || 
+                          recipient.includes('tôi');
+        
+        if (isForSelf) {
+          filterGender = profile?.gender;
+        }
       }
 
       const recommendationParams = {
