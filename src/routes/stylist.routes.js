@@ -74,21 +74,21 @@ TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT. KHÔNG DÙNG TIẾNG TRUNG.
 
 ${profileCtx}${historyContext}
 
-🚩 TRẠNG THÁI HIỆN TẠI (TUYỆT ĐỐI KHÔNG hỏi lại cái đã "Đã có"):
-- Đối tượng (recipient): ${recipientDescription || 'Chưa biết'}
-- Giới tính người mặc (targetGender): ${targetGender || 'Chưa biết'}
-- Dịp: ${occasion || 'Chưa biết'}
-- Phong cách: ${style || 'Chưa biết'}
-- Ngân sách: ${budget ? budget.toLocaleString('vi-VN') + 'đ' : 'Chưa biết'}
+🚩 TRẠNG THÁI HIỆN TẠI (ĐÃ BIẾT - TUYỆT ĐỐI KHÔNG hỏi lại):
+- Đối tượng: **${recipientDescription || 'Chưa biết'}**
+- Giới tính người mặc: **${targetGender || 'Chưa biết'}**
+- Dịp: **${occasion || 'Chưa biết'}**
+- Phong cách: **${style || 'Chưa biết'}**
+- Ngân sách: **${budget ? budget.toLocaleString('vi-VN') + 'đ' : 'Chưa biết'}**
 
 🚩 QUY TẮC BẮT BUỘC:
 1. Nếu User nhắn "tang ban gai" -> hiểu là "Tặng bạn gái/vợ", set targetGender: "female". KHÔNG ĐƯỢC hiểu là "tiệc tang".
-2. KHÔNG hỏi lại thông tin vừa mới được cung cấp trong message trước đó.
+2. **TUYỆT ĐỐI KHÔNG** hỏi lại "Bạn mua đồ cho ai?" hay "Đối tượng là ai?" nếu trường "Đối tượng" phía trên đã khác "Chưa biết".
 3. Phản hồi phải tự nhiên, sử dụng tiếng Việt có dấu chuẩn xác (VD: "vợ" thay vì "vo").
 4. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
 5. Luôn xác định xong Đối tượng & Dịp & Phong cách TRƯỚC KHI hỏi Ngân sách.
 6. Nếu đã có Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
-7. Đảm bảo "reply" dẫn dắt mượt mà: "Dưới đây là một số mẫu... phù hợp với ngân sách [budget] của bạn".
+7. Đảm bảo "reply" dẫn dắt mượt mà vào sản phẩm nếu shouldRecommend là true.
 
 PHẢI TRẢ VỀ JSON:
 {
