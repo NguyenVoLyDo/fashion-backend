@@ -2,33 +2,34 @@
  * Tìm hoặc tạo conversation mới
  */
 export async function getOrCreateConversation(pool, { userId, sessionId, type = 'support' }) {
+  // Bỏ 'type' ra khỏi query do trên production DB chưa có cột này
   if (userId) {
     const { rows } = await pool.query(
       `SELECT id FROM chat_conversations
-       WHERE user_id = $1 AND type = $2
+       WHERE user_id = $1
        ORDER BY updated_at DESC LIMIT 1`,
-      [userId, type]
+      [userId]
     )
     if (rows[0]) return rows[0].id
  
     const { rows: created } = await pool.query(
-      `INSERT INTO chat_conversations (user_id, type) VALUES ($1, $2) RETURNING id`,
-      [userId, type]
+      `INSERT INTO chat_conversations (user_id) VALUES ($1) RETURNING id`,
+      [userId]
     )
     return created[0].id
   }
 
   const { rows } = await pool.query(
     `SELECT id FROM chat_conversations
-     WHERE session_id = $1 AND type = $2
+     WHERE session_id = $1
      ORDER BY updated_at DESC LIMIT 1`,
-    [sessionId, type]
+    [sessionId]
   )
   if (rows[0]) return rows[0].id
 
   const { rows: created } = await pool.query(
-    `INSERT INTO chat_conversations (session_id, type) VALUES ($1, $2) RETURNING id`,
-    [sessionId, type]
+    `INSERT INTO chat_conversations (session_id) VALUES ($1) RETURNING id`,
+    [sessionId]
   )
   return created[0].id
 }
