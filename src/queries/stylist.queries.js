@@ -20,11 +20,16 @@ export async function getProductRecommendations(pool, {
     params.push(categorySlug)
   }
   if (gender) {
-    // Nếu có gender từ profile/filter, lọc theo category hoặc description (tùy schema, ở đây giả định lọc theo category name chứa gender hoặc description)
-    conditions.push(`(c.name ILIKE $${idx} OR p.description ILIKE $${idx})`)
-    params.push(gender === 'male' ? '%Nam%' : '%Nữ%')
-    idx++
+    // Lọc theo keyword trong tên category hoặc description, và thêm logic danh mục đặc thù
+    if (gender === 'male') {
+      conditions.push(`(c.name ILIKE '%Nam%' OR p.description ILIKE '%Nam%' OR c.slug ILIKE '%nam%')`)
+    } else if (gender === 'female') {
+      conditions.push(`(c.name ILIKE '%Nữ%' OR p.description ILIKE '%Nữ%' OR c.slug ILIKE '%nu%' OR c.slug IN ('vay-dam', 'chan-vay'))`)
+    }
   }
+
+  // Luôn đảm bảo có hàng
+  conditions.push('v.id IS NOT NULL')
   if (maxPrice) {
     conditions.push(`p.base_price <= $${idx++}`)
     params.push(maxPrice)

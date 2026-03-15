@@ -153,12 +153,33 @@ router.post(
       collectedInfo: collectedInfo // Bắt đầu bằng thông tin cũ
     }
     
+    // Helper parse nhanh ngân sách nếu AI trả về text
+    const parseBudget = (text) => {
+      const match = text.match(/([\d.]+)\s*(triệu|tr|tỉ|t|k)/i);
+      if (match) {
+        let val = parseFloat(match[1].replace(/\./g, ''));
+        const unit = match[2].toLowerCase();
+        if (unit.startsWith('tr')) return val * 1000000;
+        if (unit.startsWith('t')) return val * 1000000000;
+        if (unit.startsWith('k')) return val * 1000;
+      }
+      return null;
+    }
+
     try {
       const match = raw.match(/\{[\s\S]*\}/)
       if (match) {
         const p = JSON.parse(match[0])
         parsed = { ...parsed, ...p }
         
+        // Cố gắng parse budget từ reply nếu collectedInfo.budget trống
+        if (!parsed.collectedInfo?.budget) {
+          const b = parseBudget(message);
+          if (b) {
+             if (!parsed.collectedInfo) parsed.collectedInfo = {};
+             parsed.collectedInfo.budget = b;
+          }
+        }
         // Merge thông minh: chỉ ghi đè nếu AI trả về giá trị thực sự (không null/undefined/empty)
         const mergedInfo = { ...collectedInfo }
         if (p.collectedInfo) {
