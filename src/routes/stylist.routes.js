@@ -55,17 +55,20 @@ function sanitizeResponse(text) {
 
 // System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
 function buildStylistPrompt(user, profile, purchaseHistory, availableCategories) {
-  const age = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
-  const gender = profile?.gender || null;
+  const userAge = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
+  const userGender = profile?.gender || null;
 
-  const profileCtx = age || gender
-    ? `\nThông tin khách hàng: ${gender ? `Giới tính ${gender === 'male' ? 'Nam' : 'Nữ'}` : ''}${age ? `, ${age} tuổi` : ''}.`
-    : '\nThông tin khách hàng: Chưa có thông tin về tuổi và giới tính. Hãy hỏi khéo léo nếu cần.'
+  const currentInfo = profile?.collectedInfo || {};
+  const { recipientDescription, targetGender, occasion, style, budget } = currentInfo;
 
-  const currentInfoCtx = `\nTRẠNG THÁI THU THẬP THÔNG TIN HIỆN TẠI (ĐỪNG HỎI LẠI CÁI ĐÃ CÓ):
-- Dịp mặc: ${profile?.collectedInfo?.occasion || 'Chưa biết'}
-- Phong cách: ${profile?.collectedInfo?.style || 'Chưa biết'}
-- Ngân sách: ${profile?.collectedInfo?.budget || 'Chưa biết'}`
+  const profileCtx = `Thông tin chủ tài khoản: ${userGender || 'Chưa biết'}${userAge ? `, ${userAge} tuổi` : ''}.`
+
+  const stateCtx = `TRẠNG THÁI HIỆN TẠI:
+- Đối tượng: ${recipientDescription || 'Chưa biết'}
+- Giới tính người mặc: ${targetGender || 'Chưa biết'}
+- Dịp: ${occasion || 'Chưa biết'}
+- Phong cách: ${style || 'Chưa biết'}
+- Ngân sách: ${budget || 'Chưa biết'}`
 
   const historyContext = purchaseHistory.length > 0
     ? `\nLịch sử mua hàng của khách:
@@ -74,34 +77,25 @@ ${purchaseHistory.map(p =>
 ).join('\n')}`
     : '\nKhách chưa có lịch sử mua hàng.'
 
-  return `Bạn là Chuyên gia tư vấn thời trang cá nhân (Personal Stylist) cho thương hiệu thời trang Việt Nam.
-Bạn có 2 trạng thái hoạt động: CHẾ ĐỘ THU THẬP và CHẾ ĐỘ GỢI Ý.
+  return `Bạn là Personal Stylist AI. Nhiệm vụ: Thu thập thông tin qua 4 bước:
+Bước 0: Xác định đối tượng (mua cho ai?) và Giới tính người mặc.
+   - "mua cho bạn gái" -> Người mặc: bạn gái, Giới tính: female.
+   - "mua cho mình" -> Giới tính: lấy từ chủ tài khoản.
+   - Nếu chưa rõ giới tính -> Phải hỏi: "Bạn tìm đồ cho nam hay nữ?".
+Bước 1: Dịp mặc. Bước 2: Phong cách. Bước 3: Ngân sách.
 
-🚩 TRẠNG THÁI HIỆN TẠI:
-- Giới tính: ${gender ? (gender === 'male' ? 'Nam' : 'Nữ') : 'Chưa biết'}
-- Độ tuổi: ${age ? `${age} tuổi` : 'Chưa biết'}
-${currentInfoCtx}
+${profileCtx}
+${stateCtx}
 ${historyContext}
-
---------------------------------------------------
-💎 CHẾ ĐỘ 1: CHẾ ĐỘ THU THẬP (Khi chưa có Ngân sách)
-Nhiệm vụ: Tìm hiểu Dịp mặc, Phong cách và Ngân sách.
-Luật:
-- Nếu khách đã nói dịp mặc (vd: đi làm), TUYỆT ĐỐI không hỏi lại "Bạn tìm đồ đi làm hả?".
-- Nếu thiếu Ngân sách, hãy hỏi THẲNG: "Ngân sách của bạn khoảng bao nhiêu?".
-- Mỗi tin nhắn chỉ hỏi 1 câu ngắn gọn.
-
-🚀 CHẾ ĐỘ 2: CHẾ ĐỘ GỢI Ý (BẮT BUỘC KHI ĐÃ CÓ NGÂN SÁCH TRONG TRẠNG THÁI HIỆN TẠI)
-Nhiệm vụ: Không hỏi thêm bất cứ điều gì. Phải đưa ra lời khuyên và gợi ý sản phẩm ngay.
-Luật:
-- Set shouldRecommend = true, shouldAskMore = false.
 
 --------------------------------------------------
 PHẢI TRẢ VỀ DẠNG JSON:
 {
-  "reply": "câu trả lời của bạn (ngắn gọn, xưng mình gọi bạn)",
+  "reply": "câu trả lời",
   "shouldAskMore": boolean, 
   "collectedInfo": {
+    "recipientDescription": "ai: bản thân/bạn gái/con trai...",
+    "targetGender": "male" | "female" | null,
     "occasion": "...", 
     "style": "...", 
     "budget": number | null 
@@ -110,6 +104,7 @@ PHẢI TRẢ VỀ DẠNG JSON:
     "categorySlug": "...", 
     "maxPrice": number | null,
     "minPrice": number | null,
+    "targetGender": "male" | "female" | null,
     "shouldRecommend": boolean 
   }
 }
