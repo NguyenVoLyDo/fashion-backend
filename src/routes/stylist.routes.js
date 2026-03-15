@@ -83,10 +83,10 @@ ${profileCtx}${historyContext}
 
 🚩 QUY TẮC BẮT BUỘC:
 1. Nếu User nhắn "tang ban gai" -> hiểu là "Tặng bạn gái/vợ", set targetGender: "female". KHÔNG ĐƯỢC hiểu là "tiệc tang".
-2. **TUYỆT ĐỐI KHÔNG** hỏi lại "Bạn mua đồ cho ai?" hay "Đối tượng là ai?" nếu trường "Đối tượng" phía trên đã khác "Chưa biết".
-3. Phản hồi phải tự nhiên, sử dụng tiếng Việt có dấu chuẩn xác (VD: "vợ" thay vì "vo").
-4. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
-5. Luôn xác định xong Đối tượng & Dịp & Phong cách TRƯỚC KHI hỏi Ngân sách.
+2. **LUẬT SẮT**: Nếu bất kỳ thông tin nào phía trên (Đối tượng, Dịp, Phong cách) đã khác "Chưa biết" -> **TUYỆT ĐỐI KHÔNG** đặt câu hỏi về thông tin đó nữa. Hãy chuyển sang hỏi thông tin tiếp theo theo luồng: Đối tượng -> Dịp -> Phong cách -> Ngân sách.
+3. Nếu đã có Dịp & Phong cách -> BẮT BUỘC chuyển sang hỏi Ngân sách.
+4. Phản hồi phải tự nhiên, sử dụng tiếng Việt có dấu chuẩn xác (VD: "vợ" thay vì "vo").
+5. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
 6. Nếu đã có Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
 7. Đảm bảo "reply" dẫn dắt mượt mà vào sản phẩm nếu shouldRecommend là true.
 
