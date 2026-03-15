@@ -30,14 +30,23 @@ const app = express();
 app.use(helmet());
 
 // Flexible CORS for Vercel previews
-const allowedOrigins = CORS_ORIGIN.split(',').map(o => o.trim());
+const allowedOrigins = [
+    ...CORS_ORIGIN.split(',').map(o => o.trim()),
+    'http://localhost:5173',
+    'http://127.0.0.1:5173'
+];
+
 app.use(
     cors({
         origin: (origin, callback) => {
-            if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+            // Allow requests with no origin (like mobile apps or curl)
+            if (!origin) return callback(null, true);
+            
+            if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
                 callback(null, true);
             } else {
-                callback(new Error('Not allowed by CORS'));
+                console.warn(`CORS blocked for origin: ${origin}`);
+                callback(null, false); // Return false instead of Error to avoid 500
             }
         },
         credentials: true,
