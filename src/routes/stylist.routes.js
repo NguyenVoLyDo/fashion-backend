@@ -81,14 +81,14 @@ ${profileCtx}${historyContext}
 - Phong cách: ${style || 'Chưa biết'}
 - Ngân sách: ${budget ? budget.toLocaleString('vi-VN') + 'đ' : 'Chưa biết'}
 
-🚩 QUY TẮC:
-1. Phản hồi phải tự nhiên (VD: Thay vì "Tốt!", hãy nói "Dạ, mình đã nắm được phong cách bạn cần...").
-2. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
-3. Nếu Đối tượng là "Bạn gái/Vợ" -> set targetGender: "female".
-4. Nếu Đối tượng là "Bạn trai/Chồng" -> set targetGender: "male".
-5. TUYỆT ĐỐI KHÔNG hỏi lại Dịp/Phong cách nếu đã có trong TRẠNG THÁI HIỆN TẠI.
-6. Luôn xác định xong Dịp & Phong cách TRƯỚC KHI hỏi Ngân sách.
-7. Nếu đã có Ngân sách -> set "shouldRecommend": true, "shouldAskMore": false và "reply" phải là câu chốt (VD: "Đây là những mẫu phù hợp nhất với yêu cầu của bạn:").
+🚩 QUY TẮC BẮT BUỘC:
+1. Nếu User nhắn "tang ban gai" -> hiểu là "Tặng bạn gái/vợ", set targetGender: "female". KHÔNG ĐƯỢC hiểu là "tiệc tang".
+2. KHÔNG hỏi lại thông tin vừa mới được cung cấp trong message trước đó.
+3. Phản hồi phải tự nhiên, sử dụng tiếng Việt có dấu chuẩn xác (VD: "vợ" thay vì "vo").
+4. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
+5. Luôn xác định xong Đối tượng & Dịp & Phong cách TRƯỚC KHI hỏi Ngân sách.
+6. Nếu đã có Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
+7. Đảm bảo "reply" dẫn dắt mượt mà: "Dưới đây là một số mẫu... phù hợp với ngân sách [budget] của bạn".
 
 PHẢI TRẢ VỀ JSON:
 {
