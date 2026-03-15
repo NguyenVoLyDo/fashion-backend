@@ -52,39 +52,54 @@ function sanitizeResponse(text) {
 
 // System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
 function buildStylistPrompt(user, profile, purchaseHistory, availableCategories) {
+  const userAge = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
+  const userGender = profile?.gender || null;
   const currentInfo = profile?.collectedInfo || {};
   const { recipientDescription, targetGender, occasion, style, budget } = currentInfo;
+
+  const profileCtx = `Thông tin chủ tài khoản: ${userGender === 'male' ? 'Nam' : userGender === 'female' ? 'Nữ' : 'Chưa rõ'}${userAge ? `, ${userAge} tuổi` : ''}.`
+
+  const historyContext = purchaseHistory.length > 0
+    ? `\nLịch sử mua hàng của khách:
+${purchaseHistory.map(p =>
+  `- ${p.name} (${p.categoryName}, màu ${p.colorName}, size ${p.sizeName})`
+).join('\n')}`
+    : ''
 
   return `Bạn là Stylist AI chuyên nghiệp. Hãy tư vấn ngắn gọn, đi thẳng vào vấn đề.
 TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT. KHÔNG DÙNG TIẾNG TRUNG.
 
-🚩 TRẠNG THÁI HIỆN TẠI (Chỉ hỏi field nào là "Chưa biết"):
-- Đối tượng: ${recipientDescription || 'Chưa biết'}
-- Giới tính (targetGender): ${targetGender || 'Chưa biết'}
+${profileCtx}${historyContext}
+
+🚩 TRẠNG THÁI HIỆN TẠI (TUYỆT ĐỐI KHÔNG hỏi lại cái đã "Đã có"):
+- Đối tượng (recipient): ${recipientDescription || 'Chưa biết'}
+- Giới tính người mặc (targetGender): ${targetGender || 'Chưa biết'}
 - Dịp: ${occasion || 'Chưa biết'}
 - Phong cách: ${style || 'Chưa biết'}
-- Ngân sách: ${budget || 'Chưa biết'}
+- Ngân sách: ${budget ? budget.toLocaleString('vi-VN') + 'đ' : 'Chưa biết'}
 
-🚩 QUY TẮC:
-1. KHÔNG hỏi lại thông tin đã có.
-2. Nếu THIẾU thông tin -> hỏi 1 câu DUY NHẤT cực ngắn. 
-3. Nếu ĐỦ 5 thông tin hoặc CÓ Ngân sách -> set shouldRecommend: true, shouldAskMore: false.
-4. Gợi ý sản phẩm thuộc danh mục: ${availableCategories.join(', ')}.
+🚩 QUY TẮC CỨNG:
+1. Nếu Giới tính là "Chưa biết" và Đối tượng là "bạn gái/vợ/mẹ/con gái" -> set targetGender: "female".
+2. Nếu Giới tính là "Chưa biết" và Đối tượng là "bạn trai/chồng/ba/con trai" -> set targetGender: "male".
+3. Nếu Giới tính là "Chưa biết" và Đối tượng là "bản thân" -> dùng giới tính chủ tài khoản.
+4. Nếu THIẾU thông tin -> hỏi 1 câu cực ngắn (VD: "Bạn dự định mua trong khoảng bao nhiêu tiền?").
+5. Nếu ĐÃ CÓ Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
+6. Ngân sách "1 triệu" = 1000000. KHÔNG nhầm thành 1 tỷ.
 
 PHẢI TRẢ VỀ JSON:
 {
-  "reply": "câu trả lời ngắn gọn tiếng Việt",
+  "reply": "câu trả lời ngắn gọn",
   "shouldAskMore": boolean, 
   "collectedInfo": {
-    "recipientDescription": "ai?",
-    "targetGender": "male/female",
+    "recipientDescription": "...",
+    "targetGender": "male" | "female",
     "occasion": "...", 
     "style": "...", 
     "budget": number
   },
   "filters": {
     "categorySlug": "...",
-    "targetGender": "male/female",
+    "targetGender": "male" | "female",
     "shouldRecommend": boolean 
   }
 }`
@@ -144,8 +159,17 @@ router.post(
         const p = JSON.parse(match[0])
         parsed = { ...parsed, ...p }
         
-        // Merge collectedInfo thay vì ghi đè hoàn toàn để giữ các field cũ nếu AI làm mất
-        parsed.collectedInfo = { ...collectedInfo, ...p.collectedInfo }
+        // Merge thông minh: chỉ ghi đè nếu AI trả về giá trị thực sự (không null/undefined/empty)
+        const mergedInfo = { ...collectedInfo }
+        if (p.collectedInfo) {
+          Object.keys(p.collectedInfo).forEach(key => {
+            const val = p.collectedInfo[key]
+            if (val !== null && val !== undefined && val !== '') {
+              mergedInfo[key] = val
+            }
+          })
+        }
+        parsed.collectedInfo = mergedInfo
 
         // Validation
         if (parsed.filters?.categorySlug && !availableCategories.includes(parsed.filters.categorySlug)) {
