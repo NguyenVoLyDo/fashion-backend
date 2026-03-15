@@ -206,14 +206,24 @@ router.post(
         filterGender = profile?.gender;
       }
 
-      products = await getProductRecommendations(pool, {
-        categorySlug: parsed.filters.categorySlug || undefined,
-        maxPrice: parsed.filters.maxPrice || undefined,
-        minPrice: parsed.filters.minPrice || undefined,
-        gender: filterGender || undefined,
+      const recommendationParams = {
+        categorySlug: parsed.filters.categorySlug || null,
+        maxPrice: parsed.filters.maxPrice || parsed.collectedInfo?.budget || collectedInfo.budget || null,
+        minPrice: parsed.filters.minPrice || null,
+        gender: filterGender || null,
         excludeProductIds: excludeIds,
-        limit: 4,
-      })
+        limit: 4
+      }
+
+      products = await getProductRecommendations(pool, recommendationParams)
+
+      // FALLBACK: Nếu không tìm thấy sản phẩm với category cụ thể, thử tìm rộng hơn
+      if (products.length === 0 && recommendationParams.categorySlug) {
+        products = await getProductRecommendations(pool, {
+          ...recommendationParams,
+          categorySlug: null
+        })
+      }
 
       if (products.length > 0) {
         const productListStr = products.map(p => `- ${p.name} (giá: ${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
