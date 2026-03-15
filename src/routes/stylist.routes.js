@@ -138,83 +138,64 @@ router.post(
 
     await saveMessage(pool, { conversationId, role: 'user', content: message })
 
-    const messages = [
+    const messagesForHistory = [
       ...dbHistory.map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: message },
     ]
 
+    // 2. Tự động xác định target gender từ profile nếu mua cho bản thân
+    let userProfile = null
+    if (!historyInfo.targetGender && (!historyInfo.recipientDescription || historyInfo.recipientDescription === 'Bản thân')) {
+      userProfile = userId ? await getUserProfile(pool, userId) : null
+      if (userProfile?.gender) historyInfo.targetGender = userProfile.gender
+    }
+
+    const [profile, purchaseHistory, { rows: catRows }] = await Promise.all([
+      userProfile ? Promise.resolve(userProfile) : (userId ? getUserProfile(pool, userId) : Promise.resolve(null)),
+      userId ? getUserPurchaseHistory(pool, userId) : Promise.resolve([]),
+      pool.query(`SELECT slug FROM categories`),
+    ])
+
+    const availableCategories = catRows.map(r => r.slug)
+    const excludeIds = purchaseHistory.map(p => p.productId)
+
+    // 3. Gọi AI với state đã extract
     const raw = await ollamaChat({
-      system: buildStylistPrompt(req.user, { ...profile, collectedInfo }, purchaseHistory, availableCategories),
-      messages,
+      system: buildStylistPrompt(req.user, profile, historyInfo, purchaseHistory),
+      messages: messagesForHistory,
       maxTokens: 512,
-      temperature: 0.2 // Giảm temperature để ổn định hơn, tránh lặp
+      temperature: 0.2
     })
 
     // Parse JSON
     let parsed = { 
       reply: raw, 
+      nextQuestion: null,
       shouldAskMore: true,
-      filters: { shouldRecommend: false },
-      collectedInfo: collectedInfo // Bắt đầu bằng thông tin cũ
+      filters: { shouldRecommend: false }
     }
     
-    // Helper parse nhanh ngân sách nếu AI trả về text
-    const parseBudget = (text) => {
-      const match = text.match(/([\d.]+)\s*(triệu|tr|tỉ|t|k)/i);
-      if (match) {
-        let val = parseFloat(match[1].replace(/\./g, ''));
-        const unit = match[2].toLowerCase();
-        if (unit.startsWith('tr')) return val * 1000000;
-        if (unit.startsWith('t')) return val * 1000000000;
-        if (unit.startsWith('k')) return val * 1000;
-      }
-      return null;
-    }
-
     try {
       const match = raw.match(/\{[\s\S]*\}/)
       if (match) {
-        const p = JSON.parse(match[0])
-        parsed = { ...parsed, ...p }
-        
-        // Cố gắng parse budget từ reply nếu collectedInfo.budget trống
-        if (!parsed.collectedInfo?.budget) {
-          const b = parseBudget(message);
-          if (b) {
-             if (!parsed.collectedInfo) parsed.collectedInfo = {};
-             parsed.collectedInfo.budget = b;
-          }
-        }
-        // Merge thông minh: chỉ ghi đè nếu AI trả về giá trị thực sự (không null/undefined/empty)
-        const mergedInfo = { ...collectedInfo }
-        if (p.collectedInfo) {
-          Object.keys(p.collectedInfo).forEach(key => {
-            const val = p.collectedInfo[key]
-            if (val !== null && val !== undefined && val !== '') {
-              mergedInfo[key] = val
-            }
-          })
-        }
-        parsed.collectedInfo = mergedInfo
-
-        // Validation
-        if (parsed.filters?.categorySlug && !availableCategories.includes(parsed.filters.categorySlug)) {
-          parsed.filters.categorySlug = null
-        }
+        parsed = { ...parsed, ...JSON.parse(match[0]) }
       }
     } catch (e) {
       console.error('Stylist JSON Parse Error:', e)
       parsed.reply = sanitizeResponse(raw)
     }
 
-    // SAFETY VALVE: Ép recommend nếu đã đủ thông tin quan trọng
-    const hasAllInfo = parsed.collectedInfo.recipientDescription && 
-                       parsed.collectedInfo.targetGender && 
-                       parsed.collectedInfo.occasion && 
-                       parsed.collectedInfo.style && 
-                       parsed.collectedInfo.budget;
+    // 4. FALLBACK & SAFETY VALVE
+    // Cập nhật collectedInfo dựa trên cả JS extraction và AI parsing
+    const finalInfo = {
+      ...historyInfo,
+      ...(parsed.collectedInfo || {}) // Nếu AI có parse thêm được gì mới
+    }
 
-    if (hasAllInfo || parsed.collectedInfo.budget) {
+    const infoCount = Object.values(finalInfo).filter(v => v !== null && v !== undefined && v !== '').length
+    const turnCount = Math.floor(dbHistory.length / 2)
+
+    if (infoCount >= 4 || turnCount >= 3) {
       parsed.shouldAskMore = false
       parsed.filters.shouldRecommend = true
     }
@@ -308,8 +289,9 @@ LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
     res.write(`data: ${JSON.stringify({
       type: 'response',
       text: parsed.reply,
+      nextQuestion: parsed.nextQuestion,
       shouldAskMore: parsed.shouldAskMore,
-      collectedInfo: parsed.collectedInfo,
+      collectedInfo: finalInfo,
       products,
     })}\n\n`)
 
