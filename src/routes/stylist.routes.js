@@ -83,7 +83,7 @@ ${profileCtx}${historyContext}
 
 🚩 QUY TẮC BẮT BUỘC:
 1. Nếu User nhắn "tang ban gai" -> hiểu là "Tặng bạn gái/vợ", set targetGender: "female". KHÔNG ĐƯỢC hiểu là "tiệc tang".
-2. **LUẬT SẮT**: Nếu bất kỳ thông tin nào phía trên (Đối tượng, Dịp, Phong cách) đã khác "Chưa biết" -> **TUYỆT ĐỐI KHÔNG** đặt câu hỏi về thông tin đó nữa. Hãy chuyển sang hỏi thông tin tiếp theo theo luồng: Đối tượng -> Dịp -> Phong cách -> Ngân sách.
+2. **LUẬT SẮT**: Nếu Đối tượng ĐÃ KHÁC "Chưa biết" -> **CẤM TUYỆT ĐỐI** việc hỏi lại "Cho ai?" hay "Đối tượng nào?". Hãy dùng xưng hô thân mật phù hợp để hỏi Dịp/Phong cách.
 3. Nếu đã có Dịp & Phong cách -> BẮT BUỘC chuyển sang hỏi Ngân sách.
 4. Phản hồi phải tự nhiên, sử dụng tiếng Việt có dấu chuẩn xác (VD: "vợ" thay vì "vo").
 5. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
