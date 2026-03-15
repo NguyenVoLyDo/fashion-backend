@@ -257,12 +257,13 @@ ${productListStr}
 
 Hãy viết lại câu trả lời sau để giới thiệu khéo léo ít nhất 2 sản phẩm trên. 
 Giữ phong cách chuyên nghiệp, thời trang và thân thiện. Không được bịa thêm sản phẩm khác. 
+Sửa lỗi kỹ thuật: "vo" -> "vợ".
 Câu trả lời cũ: "${parsed.reply}"
 
-LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI.`
+LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI, KHÔNG GIẢI THÍCH.`
 
         const refinedReply = await ollamaChat({
-          system: "Bạn là Stylist AI. Hãy giới thiệu sản phẩm thật. TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT. KHÔNG DÙNG TIẾNG TRUNG.",
+          system: "Bạn là Stylist AI chuyên nghiệp. Hãy giới thiệu sản phẩm thật một cách tự nhiên bằng tiếng Việt chuẩn. TUYỆT ĐỐI KHÔNG DÙNG TIẾNG TRUNG.",
           messages: [
             ...messages.slice(-2),
             { role: 'user', content: contextualPrompt }
