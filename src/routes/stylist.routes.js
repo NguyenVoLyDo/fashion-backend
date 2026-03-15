@@ -127,6 +127,17 @@ router.post(
     const conversationId = await getOrCreateConversation(pool, { userId, sessionId, type: 'stylist' })
     const dbHistory = await getRecentMessages(pool, conversationId, 10)
 
+    await saveMessage(pool, { conversationId, role: 'user', content: message })
+
+    const messagesForHistory = [
+      ...dbHistory.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user', content: message },
+    ]
+
+    // 1. Tự động extract thông tin từ history (JS side)
+    const historyInfo = extractCollectedInfo(messagesForHistory)
+
+    // 2. Fetch dữ liệu cơ bản
     const [profile, purchaseHistory, { rows: catRows }] = await Promise.all([
       userId ? getUserProfile(pool, userId) : Promise.resolve(null),
       userId ? getUserPurchaseHistory(pool, userId) : Promise.resolve([]),
@@ -136,28 +147,10 @@ router.post(
     const availableCategories = catRows.map(r => r.slug)
     const excludeIds = purchaseHistory.map(p => p.productId)
 
-    await saveMessage(pool, { conversationId, role: 'user', content: message })
-
-    const messagesForHistory = [
-      ...dbHistory.map(m => ({ role: m.role, content: m.content })),
-      { role: 'user', content: message },
-    ]
-
-    // 2. Tự động xác định target gender từ profile nếu mua cho bản thân
-    let userProfile = null
+    // 3. Tự động xác định target gender từ profile nếu mua cho bản thân
     if (!historyInfo.targetGender && (!historyInfo.recipientDescription || historyInfo.recipientDescription === 'Bản thân')) {
-      userProfile = userId ? await getUserProfile(pool, userId) : null
-      if (userProfile?.gender) historyInfo.targetGender = userProfile.gender
+      if (profile?.gender) historyInfo.targetGender = profile.gender
     }
-
-    const [profile, purchaseHistory, { rows: catRows }] = await Promise.all([
-      userProfile ? Promise.resolve(userProfile) : (userId ? getUserProfile(pool, userId) : Promise.resolve(null)),
-      userId ? getUserPurchaseHistory(pool, userId) : Promise.resolve([]),
-      pool.query(`SELECT slug FROM categories`),
-    ])
-
-    const availableCategories = catRows.map(r => r.slug)
-    const excludeIds = purchaseHistory.map(p => p.productId)
 
     // 3. Gọi AI với state đã extract
     const raw = await ollamaChat({
