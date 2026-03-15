@@ -174,10 +174,12 @@ router.post(
     let products = []
     if (parsed.filters?.shouldRecommend && !parsed.shouldAskMore) {
       // Logic xác định target gender cho filter
-      let filterGender = parsed.filters?.targetGender || parsed.collectedInfo?.targetGender;
+      let filterGender = parsed.filters?.targetGender || parsed.collectedInfo?.targetGender || collectedInfo.targetGender;
+      
+      const recipient = (parsed.collectedInfo?.recipientDescription || collectedInfo.recipientDescription || '').toLowerCase();
       
       // Nếu không có thông tin giới tính đích mà là mua cho bản thân, dùng giới tính profile
-      if (!filterGender && parsed.collectedInfo?.recipientDescription?.toLowerCase().includes('bản thân')) {
+      if (!filterGender && (recipient.includes('bản thân') || recipient.includes('mình') || recipient.includes('tôi'))) {
         filterGender = profile?.gender;
       }
 
@@ -202,15 +204,16 @@ Câu trả lời cũ: "${parsed.reply}"
 LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI.`
 
         const refinedReply = await ollamaChat({
-          system: "Bạn là Stylist AI. Hãy viết lại câu trả lời dựa trên danh sách sản phẩm thật. CHỈ TRẢ VỀ TEXT.",
+          system: "Bạn là Stylist AI. Hãy giới thiệu sản phẩm thật. TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT. KHÔNG DÙNG TIẾNG TRUNG.",
           messages: [
             ...messages.slice(-2),
             { role: 'user', content: contextualPrompt }
           ],
-          maxTokens: 512
+          maxTokens: 512,
+          temperature: 0.2
         })
         
-        if (refinedReply && refinedReply.trim().length > 10) {
+        if (refinedReply && refinedReply.trim().length > 5) {
           parsed.reply = sanitizeResponse(refinedReply)
         }
       }
