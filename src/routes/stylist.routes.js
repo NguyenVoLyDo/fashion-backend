@@ -22,23 +22,20 @@ const router = Router()
 function sanitizeResponse(text) {
   if (!text) return ''
   
-  // 1. Remove everything from the first '{' to the end of the string
-  // This is the most reliable way to remove JSON blocks often placed at the end
-  let clean = text.split('{')[0]
+  // 1. Remove anything from the first '{' or '```json' to the end of the string
+  // Use a more aggressive split to catch JSON leakage at the end
+  let clean = text.split(/\{|```json/)[0]
   
-  // 2. Remove JSON-like artifacts if any remain
-  clean = clean.replace(/```json[\s\S]*?```/g, '')
-  clean = clean.replace(/\{[\s\S]*?\}/g, '')
-  
-  // 3. Remove Chinese characters
+  // 2. Remove Chinese characters
   clean = clean.replace(/[\u4e00-\u9fa5]/g, '')
   
-  // 4. Strip common leaked system keywords and trailing punctuation artifacts
+  // 3. Strip common leaked system keywords and trailing punctuation artifacts
   const artifacts = [
     /LƯU Ý:/gi, /QUY TẮC:/gi, /NHIỆM VỤ:/gi, /JSON output/gi,
-    /Hãy viết lại/gi, /CHỈ TRẢ VỀ TEXT/gi,
+    /Hãy viết lại/gi, /CHỈ TRẢ VỀ TEXT/gi, /"filters":/gi, /"collectedInfo":/gi,
     /,\s*$/g, // Trailing comma
-    /,\s*"filters".*$/gi // Trailing filter artifact
+    /,\s*"filters".*$/gi, // Trailing filter artifact
+    /\}\s*$/g // Trailing brace
   ]
   artifacts.forEach(regex => {
     clean = clean.replace(regex, '')
@@ -47,7 +44,7 @@ function sanitizeResponse(text) {
   clean = clean.trim()
   
   if (!clean || clean.length < 5) {
-    return "Mình đã tìm được một vài gợi ý tuyệt vời cho bạn bên dưới nhé!"
+    return "Tuyệt vời! Mình đã hiểu nhu cầu của bạn. Dưới đây là những gợi ý phù hợp nhất nhé:"
   }
   
   return clean
@@ -77,21 +74,32 @@ ${purchaseHistory.map(p =>
 ).join('\n')}`
     : '\nKhách chưa có lịch sử mua hàng.'
 
-  return `Bạn là Personal Stylist AI. Nhiệm vụ: Thu thập thông tin qua 4 bước:
-Bước 0: Xác định đối tượng (mua cho ai?) và Giới tính người mặc.
-   - "mua cho bạn gái" -> Người mặc: bạn gái, Giới tính: female.
-   - "mua cho mình" -> Giới tính: lấy từ chủ tài khoản.
-   - Nếu chưa rõ giới tính -> Phải hỏi: "Bạn tìm đồ cho nam hay nữ?".
-Bước 1: Dịp mặc. Bước 2: Phong cách. Bước 3: Ngân sách.
+  return `Bạn là Personal Stylist AI chuyên nghiệp. Bạn đang tư vấn chọn đồ cho khách hàng.
+CHỈ TRẢ LỜI BẰNG TIẾNG VIỆT. TUYỆT ĐỐI KHÔNG DÙNG TIẾNG TRUNG.
 
-${profileCtx}
-${stateCtx}
-${historyContext}
+🚩 QUY TRÌNH TƯ VẤN 4 BƯỚC:
+Bước 0: Xác định đối tượng (mua cho ai?) và Giới tính người mặc.
+   - Nếu user nói "cho bạn gái" -> targetGender: female.
+   - Nếu user nói "cho mình" -> lấy từ chủ tài khoản.
+Bước 1: Dịp mặc. Bước 2: Phong cách. Bước 3: Ngân sách (VD: 500k).
+
+🚩 TRẠNG THÁI HIỆN TẠI (CHỈ HỎI CÁI ĐANG "Chưa biết"):
+- Đối tượng: ${recipientDescription || 'Chưa biết'}
+- Giới tính người mặc: ${targetGender || 'Chưa biết'}
+- Dịp: ${occasion || 'Chưa biết'}
+- Phong cách: ${style || 'Chưa biết'}
+- Ngân sách: ${budget || 'Chưa biết'}
+
+LUẬT QUAN TRỌNG:
+1. Nếu thông tin nào ĐÃ CÓ trong TRẠNG THÁI HIỆN TẠI, TUYỆT ĐỐI KHÔNG HỎI LẠI.
+2. Nếu ĐÃ CÓ Ngân sách -> shouldRecommend: true, shouldAskMore: false.
+3. Nếu CHƯA CÓ Ngân sách -> shouldRecommend: false, shouldAskMore: true.
+4. Mỗi lần chỉ hỏi 1 câu ngắn gọn về 1 thông tin còn thiếu.
 
 --------------------------------------------------
 PHẢI TRẢ VỀ DẠNG JSON:
 {
-  "reply": "câu trả lời",
+  "reply": "câu trả lời (tiếng Việt)",
   "shouldAskMore": boolean, 
   "collectedInfo": {
     "recipientDescription": "ai: bản thân/bạn gái/con trai...",
@@ -149,14 +157,15 @@ router.post(
       system: buildStylistPrompt(req.user, { ...profile, collectedInfo }, purchaseHistory, availableCategories),
       messages,
       maxTokens: 512,
-      temperature: 0.5 // Tăng độ sáng tạo cho Stylist
+      temperature: 0.2 // Giảm temperature để ổn định hơn, tránh lặp
     })
 
     // Parse JSON
     let parsed = { 
       reply: raw, 
       shouldAskMore: true,
-      filters: { shouldRecommend: false } 
+      filters: { shouldRecommend: false },
+      collectedInfo: collectedInfo // Bắt đầu bằng thông tin cũ
     }
     
     try {
@@ -165,6 +174,9 @@ router.post(
         const p = JSON.parse(match[0])
         parsed = { ...parsed, ...p }
         
+        // Merge collectedInfo thay vì ghi đè hoàn toàn để giữ các field cũ nếu AI làm mất
+        parsed.collectedInfo = { ...collectedInfo, ...p.collectedInfo }
+
         // Validation
         if (parsed.filters?.categorySlug && !availableCategories.includes(parsed.filters.categorySlug)) {
           parsed.filters.categorySlug = null
@@ -175,8 +187,14 @@ router.post(
       parsed.reply = sanitizeResponse(raw)
     }
 
-    // SAFETY VALVE: Nếu đã có budget mà AI vẫn bảo shouldAskMore = true, thì ép recommend
-    if (collectedInfo.budget && parsed.shouldAskMore) {
+    // SAFETY VALVE: Ép recommend nếu đã đủ thông tin quan trọng
+    const hasAllInfo = parsed.collectedInfo.recipientDescription && 
+                       parsed.collectedInfo.targetGender && 
+                       parsed.collectedInfo.occasion && 
+                       parsed.collectedInfo.style && 
+                       parsed.collectedInfo.budget;
+
+    if (hasAllInfo || parsed.collectedInfo.budget) {
       parsed.shouldAskMore = false
       parsed.filters.shouldRecommend = true
     }
