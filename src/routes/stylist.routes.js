@@ -66,43 +66,55 @@ function extractCollectedInfo(messages) {
   }
 
   messages.forEach(m => {
+    if (m.role !== 'user') return
     const text = m.content.toLowerCase()
     
-    // 1. Đối tượng
-    if (text.includes('cho bản thân') || text.includes('cho mình') || text.includes('cho tôi')) info.recipientDescription = 'Bản thân'
-    if (text.includes('tặng bạn gái') || text.includes('tặng vợ') || text.includes('cho vợ')) {
+    // 1. Đối tượng & Giới tính
+    if (text.includes('cho bản thân') || text.includes('cho mình') || text.includes('cho tôi')) {
+      info.recipientDescription = 'Bản thân'
+    }
+    if (text.includes('tặng bạn gái') || text.includes('tặng vợ') || text.includes('cho vợ') || text.includes('cho bạn gái')) {
       info.recipientDescription = 'Bạn gái / Vợ'
       info.targetGender = 'female'
     }
-    if (text.includes('tặng bạn trai') || text.includes('tặng chồng') || text.includes('cho chồng')) {
+    if (text.includes('tặng bạn trai') || text.includes('tặng chồng') || text.includes('cho chồng') || text.includes('cho bạn trai')) {
       info.recipientDescription = 'Bạn trai / Chồng'
       info.targetGender = 'male'
     }
-    if (text.includes('cho con') || text.includes('cho bé')) info.recipientDescription = 'Con cái / Người thân'
+    if (text.includes('cho con') || text.includes('cho bé') || text.includes('cho cháu')) {
+      info.recipientDescription = 'Con cái / Người thân'
+    }
 
-    // 2. Giới tính
-    if (text.includes(' nam') || text.includes(' bé trai') || text.includes(' trai')) info.targetGender = 'male'
-    if (text.includes(' nữ') || text.includes(' bé gái') || text.includes(' gái')) info.targetGender = 'female'
+    if (text.includes('đồ nam') || text.includes('cho nam') || text.includes('bé trai') || text.includes(' con trai') || text.includes(' áo nam') || text.includes(' quần nam')) info.targetGender = 'male'
+    if (text.includes('đồ nữ') || text.includes('cho nữ') || text.includes('bé gái') || text.includes(' con gái') || text.includes(' áo nữ') || text.includes(' quần nữ') || text.includes(' váy') || text.includes(' đầm')) info.targetGender = 'female'
 
-    // 3. Dịp
-    if (text.includes('đi làm') || text.includes('công sở')) info.occasion = 'Đi làm'
-    if (text.includes('dạo phố') || text.includes('đi chơi')) info.occasion = 'Dạo phố'
-    if (text.includes('hẹn hò') || text.includes('đi date')) info.occasion = 'Hẹn hò'
-    if (text.includes('sự kiện') || text.includes('tiệc')) info.occasion = 'Sự kiện'
+    // 2. Dịp
+    if (text.includes('đi làm') || text.includes('công sở') || text.includes('văn phòng') || text.includes('đi dạy')) info.occasion = 'Đi làm'
+    if (text.includes('dạo phố') || text.includes('đi chơi') || text.includes('cà phê') || text.includes('đi dạo')) info.occasion = 'Dạo phố'
+    if (text.includes('hẹn hò') || text.includes('đi date') || text.includes('gặp người yêu')) info.occasion = 'Hẹn hò'
+    if (text.includes('sự kiện') || text.includes('tiệc') || text.includes('đám cưới') || text.includes('festival')) info.occasion = 'Sự kiện'
+    if (text.includes('thể thao') || text.includes('tập gym') || text.includes('chạy bộ') || text.includes('đá bóng')) info.occasion = 'Thể thao'
+    if (text.includes('ở nhà') || text.includes('ngủ')) info.occasion = 'Ở nhà'
 
-    // 4. Phong cách
-    if (text.includes('tối giản') || text.includes('minimalist')) info.style = 'Tối giản'
-    if (text.includes('thanh lịch') || text.includes('elegant')) info.style = 'Thanh lịch'
-    if (text.includes('năng động') || text.includes('active')) info.style = 'Năng động'
-    if (text.includes('cá tính') || text.includes('individual')) info.style = 'Cá tính'
+    // 3. Phong cách
+    if (text.includes('tối giản') || text.includes('minimalist') || text.includes('đơn giản')) info.style = 'Tối giản'
+    if (text.includes('thanh lịch') || text.includes('elegant') || text.includes('trưởng thành')) info.style = 'Thanh lịch'
+    if (text.includes('năng động') || text.includes('active') || text.includes('trẻ trung')) info.style = 'Năng động'
+    if (text.includes('cá tính') || text.includes('individual') || text.includes('ngầu') || text.includes('unique')) info.style = 'Cá tính'
+    if (text.includes('basic') || text.includes('cơ bản')) info.style = 'Basic'
 
-    // 5. Ngân sách
-    const budgetMatch = text.match(/(\d+)\s*(k|triệu|tr|vnd|đ)/i)
+    // 4. Ngân sách
+    const budgetMatch = text.match(/(\d+(?:\.\d+)?)\s*(k|triệu|tr|vnd|đ|đồng)/i)
     if (budgetMatch) {
-      let val = parseInt(budgetMatch[1])
-      if (budgetMatch[2].toLowerCase() === 'k') val *= 1000
-      if (budgetMatch[2].toLowerCase() === 'triệu' || budgetMatch[2].toLowerCase() === 'tr') val *= 1000000
+      let val = parseFloat(budgetMatch[1].replace(/\./g, ''))
+      const unit = budgetMatch[2].toLowerCase()
+      if (unit === 'k') val *= 1000
+      if (unit === 'triệu' || unit === 'tr') val *= 1000000
       info.budget = val
+    } else {
+      // Trường hợp chỉ có số VD: "500000" hoặc "300k"
+      const simpleMatch = text.match(/\b(\d{2,3})k\b/i)
+      if (simpleMatch) info.budget = parseInt(simpleMatch[1]) * 1000
     }
   })
 
@@ -121,40 +133,41 @@ function buildStylistPrompt(user, profile, historyInfo, purchaseHistory) {
   const style = historyInfo.style || null;
   const budget = historyInfo.budget || null;
 
-  const profileCtx = `Thông tin chủ tài khoản: ${userGender === 'male' ? 'Nam' : userGender === 'female' ? 'Nữ' : 'Chưa rõ'}${userAge ? `, ${userAge} tuổi` : ''}.`
+  const collectedList = [
+    targetGender ? `✓ Giới tính: ${targetGender === 'male' ? 'Nam' : 'Nữ'}` : null,
+    occasion ? `✓ Dịp: ${occasion}` : null,
+    style ? `✓ Phong cách: ${style}` : null,
+    budget ? `✓ Ngân sách: ${budget.toLocaleString('vi-VN')}₫` : null
+  ].filter(Boolean).join('\n')
 
-  const historyContext = purchaseHistory.length > 0
-    ? `\nLịch sử mua hàng của khách:
-${purchaseHistory.map(p =>
-  `- ${p.name} (${p.categoryName}, màu ${p.colorName}, size ${p.sizeName})`
-).join('\n')}`
-    : ''
+  const missingList = [
+    !targetGender ? '- Giới tính người mặc (Nam/Nữ)' : null,
+    !occasion ? '- Mục đích sử dụng (Đi làm, dạo phố, sự kiện...)' : null,
+    !style ? '- Phong cách (Tối giản, thanh lịch, năng động...)' : null,
+    !budget ? '- Ngân sách khoảng bao nhiêu' : null
+  ].filter(Boolean).join('\n')
 
   return `Bạn là Stylist AI chuyên nghiệp. Hãy tư vấn ngắn gọn nhưng đầy đủ, tự nhiên.
-TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT. KHÔNG DÙNG TIẾNG TRUNG.
+TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT.
 
-${profileCtx}${historyContext}
+THÔNG TIN ĐÃ CÓ TỪ LỊCH SỬ CHAT:
+${collectedList || '(Chưa có thông tin nào)'}
 
-🚩 TRẠNG THÁI HIỆN TẠI (ĐÃ BIẾT - TUYỆT ĐỐI KHÔNG hỏi lại):
-- Đối tượng: **${recipientDescription || 'Chưa biết'}**
-- Giới tính người mặc: **${targetGender || 'Chưa biết'}**
-- Dịp: **${occasion || 'Chưa biết'}**
-- Phong cách: **${style || 'Chưa biết'}**
-- Ngân sách: **${budget ? budget.toLocaleString('vi-VN') + 'đ' : 'Chưa biết'}**
+THÔNG TIN CÒN THIẾU:
+${missingList || '(Đã đủ thông tin)'}
 
-🚩 QUY TẮC BẮT BUỘC:
-1. Nếu User nhắn "tang ban gai" -> hiểu là "Tặng bạn gái/vợ", set targetGender: "female". KHÔNG ĐƯỢC hiểu là "tiệc tang".
-2. **LUẬT SẮT**: Nếu Đối tượng ĐÃ KHÁC "Chưa biết" -> **CẤM TUYỆT ĐỐI** việc hỏi lại "Cho ai?" hay "Đối tượng nào?". Hãy dùng xưng hô thân mật phù hợp để hỏi Dịp/Phong cách.
-3. Nếu đã có Dịp & Phong cách -> BẮT BUỘC chuyển sang hỏi Ngân sách.
-4. Phản hồi phải tự nhiên, sử dụng tiếng Việt có dấu chuẩn xác (VD: "vợ" thay vì "vo").
-5. Nếu Đối tượng là "Con cái/Người thân" mà chưa rõ giới tính -> BẮT BUỘC hỏi: "Bạn đang tìm đồ cho bé trai hay bé gái?".
-6. Nếu đã có Ngân sách -> set "shouldRecommend": true và "shouldAskMore": false.
-7. **QUY TẮC GIỚI TÍNH**: Nếu mua cho bản thân, TUYỆT ĐỐI KHÔNG gợi ý sản phẩm trái ngược với giới tính trong profile (ví dụ: profile Nam không gợi ý váy/đầm).
-8. Đảm bảo "reply" dẫn dắt mượt mà vào sản phẩm nếu shouldRecommend là true.
+QUY TẮC:
+1. **LUẬT SẮT**: CHỈ hỏi những thông tin CHƯA CÓ trong danh sách "THÔNG TIN ĐÃ CÓ". Tuyệt đối không hỏi lại những gì user đã nói.
+2. Nếu danh sách đã có ĐỦ cả 4 thông tin (Giới tính, Dịp, Phong cách, Ngân sách) -> BẮT BUỘC đặt "shouldRecommend": true và gợi ý sản phẩm ngay, KHÔNG hỏi thêm.
+3. Nếu còn thiếu thông tin, chỉ hỏi DUY NHẤT 1 câu cho thông tin thiếu quan trọng nhất theo thứ tự: Giới tính -> Dịp -> Phong cách -> Ngân sách.
+4. Nếu user nhắn "tặng bạn gái" -> hiểu là "Bạn gái / Vợ", set targetGender: "female".
+5. Nếu mua cho bản thân, không gợi ý đồ trái giới tính profile (Profile Nam không gợi ý váy).
+6. Khi "shouldRecommend" là true, hãy viết câu dẫn dắt mượt mà vào danh sách sản phẩm.
 
 PHẢI TRẢ VỀ JSON:
 {
-  "reply": "câu trả lời thân thiện, dẫn dắt vào sản phẩm",
+  "reply": "câu trả lời/câu hỏi thân thiện",
+  "nextQuestion": "gender" | "occasion" | "style" | "budget" | null,
   "shouldAskMore": boolean, 
   "collectedInfo": {
     "recipientDescription": "...",
@@ -164,7 +177,6 @@ PHẢI TRẢ VỀ JSON:
     "budget": number
   },
   "filters": {
-    "categorySlug": "...",
     "targetGender": "male" | "female",
     "shouldRecommend": boolean 
   }
@@ -247,9 +259,10 @@ router.post(
     }
 
     const infoCount = Object.values(finalInfo).filter(v => v !== null && v !== undefined && v !== '').length
-    const turnCount = Math.floor(dbHistory.length / 2)
+    const userTurns = messagesForHistory.filter(m => m.role === 'user').length
 
-    if (infoCount >= 4 || turnCount >= 3) {
+    // Giới hạn 4 lượt hỏi hoặc đủ thông tin
+    if (infoCount >= 4 || userTurns >= 4) {
       parsed.shouldAskMore = false
       parsed.filters.shouldRecommend = true
     }
