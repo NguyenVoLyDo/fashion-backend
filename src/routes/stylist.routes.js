@@ -65,11 +65,25 @@ function extractCollectedInfo(messages) {
     budget: null
   }
 
-  messages.forEach(m => {
+  // Detect reset keywords in the LATEST message
+  const userMessages = messages.filter(m => m.role === 'user');
+  const lastMsg = userMessages[userMessages.length - 1];
+  const lastText = lastMsg?.content.toLowerCase() || '';
+
+  const resetKeywords = [
+    'phụ kiện', 'túi', 'giày', 'dép', 'mũ', 'thắt lưng', 'ví', 'tất', 'khăn', 'kính',
+    'đổi', 'thay', 'thử', 'xem', 'tìm', 'muốn', 'cho tôi', 'gợi ý',
+    'áo', 'quần', 'váy', 'đầm', 'jacket', 'hoodie'
+  ];
+
+  const isNewRequest = resetKeywords.some(kw => lastText.includes(kw));
+
+  messages.forEach((m, idx) => {
     if (m.role !== 'user') return
     const text = m.content.toLowerCase()
+    const isLast = (m === lastMsg);
     
-    // 1. Đối tượng & Giới tính
+    // 1. Đối tượng & Giới tính (Persistent)
     if (text.includes('cho bản thân') || text.includes('cho mình') || text.includes('cho tôi')) {
       info.recipientDescription = 'Bản thân'
     }
@@ -88,22 +102,26 @@ function extractCollectedInfo(messages) {
     if (text.includes('đồ nam') || text.includes('cho nam') || text.includes('bé trai') || text.includes(' con trai') || text.includes(' áo nam') || text.includes(' quần nam')) info.targetGender = 'male'
     if (text.includes('đồ nữ') || text.includes('cho nữ') || text.includes('bé gái') || text.includes(' con gái') || text.includes(' áo nữ') || text.includes(' quần nữ') || text.includes(' váy') || text.includes(' đầm')) info.targetGender = 'female'
 
-    // 2. Dịp
-    if (text.includes('đi làm') || text.includes('công sở') || text.includes('văn phòng') || text.includes('đi dạy')) info.occasion = 'Đi làm'
-    if (text.includes('dạo phố') || text.includes('đi chơi') || text.includes('cà phê') || text.includes('đi dạo')) info.occasion = 'Dạo phố'
-    if (text.includes('hẹn hò') || text.includes('đi date') || text.includes('gặp người yêu')) info.occasion = 'Hẹn hò'
-    if (text.includes('sự kiện') || text.includes('tiệc') || text.includes('đám cưới') || text.includes('festival')) info.occasion = 'Sự kiện'
-    if (text.includes('thể thao') || text.includes('tập gym') || text.includes('chạy bộ') || text.includes('đá bóng')) info.occasion = 'Thể thao'
-    if (text.includes('ở nhà') || text.includes('ngủ')) info.occasion = 'Ở nhà'
+    // 2. Dịp (Perishable - Reset if new request detected unless in last message)
+    if (!isNewRequest || isLast) {
+      if (text.includes('đi làm') || text.includes('công sở') || text.includes('văn phòng') || text.includes('đi dạy')) info.occasion = 'Đi làm'
+      if (text.includes('dạo phố') || text.includes('đi chơi') || text.includes('cà phê') || text.includes('đi dạo')) info.occasion = 'Dạo phố'
+      if (text.includes('hẹn hò') || text.includes('đi date') || text.includes('gặp người yêu')) info.occasion = 'Hẹn hò'
+      if (text.includes('sự kiện') || text.includes('tiệc') || text.includes('đám cưới') || text.includes('festival')) info.occasion = 'Sự kiện'
+      if (text.includes('thể thao') || text.includes('tập gym') || text.includes('chạy bộ') || text.includes('đá bóng')) info.occasion = 'Thể thao'
+      if (text.includes('ở nhà') || text.includes('ngủ')) info.occasion = 'Ở nhà'
+    }
 
-    // 3. Phong cách
-    if (text.includes('tối giản') || text.includes('minimalist') || text.includes('đơn giản')) info.style = 'Tối giản'
-    if (text.includes('thanh lịch') || text.includes('elegant') || text.includes('trưởng thành')) info.style = 'Thanh lịch'
-    if (text.includes('năng động') || text.includes('active') || text.includes('trẻ trung')) info.style = 'Năng động'
-    if (text.includes('cá tính') || text.includes('individual') || text.includes('ngầu') || text.includes('unique')) info.style = 'Cá tính'
-    if (text.includes('basic') || text.includes('cơ bản')) info.style = 'Basic'
+    // 3. Phong cách (Perishable - Reset if new request detected unless in last message)
+    if (!isNewRequest || isLast) {
+      if (text.includes('tối giản') || text.includes('minimalist') || text.includes('đơn giản')) info.style = 'Tối giản'
+      if (text.includes('thanh lịch') || text.includes('elegant') || text.includes('trưởng thành')) info.style = 'Thanh lịch'
+      if (text.includes('năng động') || text.includes('active') || text.includes('trẻ trung')) info.style = 'Năng động'
+      if (text.includes('cá tính') || text.includes('individual') || text.includes('ngầu') || text.includes('unique')) info.style = 'Cá tính'
+      if (text.includes('basic') || text.includes('cơ bản')) info.style = 'Basic'
+    }
 
-    // 4. Ngân sách
+    // 4. Ngân sách (Persistent but overridable)
     const budgetMatch = text.match(/(\d+(?:\.\d+)?)\s*(k|triệu|tr|vnd|đ|đồng)/i)
     if (budgetMatch) {
       let val = parseFloat(budgetMatch[1].replace(/\./g, ''))
@@ -112,7 +130,6 @@ function extractCollectedInfo(messages) {
       if (unit === 'triệu' || unit === 'tr') val *= 1000000
       info.budget = val
     } else {
-      // Trường hợp chỉ có số VD: "500000" hoặc "300k"
       const simpleMatch = text.match(/\b(\d{2,3})k\b/i)
       if (simpleMatch) info.budget = parseInt(simpleMatch[1]) * 1000
     }
