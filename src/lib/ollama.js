@@ -9,7 +9,7 @@ const OLLAMA_HEADERS = {
 /**
  * Non-streaming chat — dùng cho Stylist Bot (cần parse JSON)
  */
-export async function ollamaChat({ system, messages, maxTokens = 512 }) {
+export async function ollamaChat({ system, messages, maxTokens = 512, temperature = 0.7 }) {
   const response = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: OLLAMA_HEADERS,
@@ -17,7 +17,7 @@ export async function ollamaChat({ system, messages, maxTokens = 512 }) {
       model: OLLAMA_MODEL,
       messages: [{ role: 'system', content: system }, ...messages],
       stream: false,
-      options: { num_predict: maxTokens, temperature: 0.7 },
+      options: { num_predict: maxTokens, temperature },
     }),
   })
 
@@ -34,7 +34,7 @@ export async function ollamaChat({ system, messages, maxTokens = 512 }) {
  * onChunk(text): gọi mỗi khi có text mới
  * onDone(fullText): gọi khi xong
  */
-export async function ollamaChatStream({ system, messages, maxTokens = 1024, onChunk, onDone }) {
+export async function ollamaChatStream({ system, messages, maxTokens = 1024, temperature = 0.7, onChunk, onDone }) {
   const response = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: OLLAMA_HEADERS,
@@ -42,7 +42,7 @@ export async function ollamaChatStream({ system, messages, maxTokens = 1024, onC
       model: OLLAMA_MODEL,
       messages: [{ role: 'system', content: system }, ...messages],
       stream: true,
-      options: { num_predict: maxTokens, temperature: 0.7 },
+      options: { num_predict: maxTokens, temperature },
     }),
   })
 
