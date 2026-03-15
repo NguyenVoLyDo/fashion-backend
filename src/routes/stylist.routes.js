@@ -89,7 +89,6 @@ PHẢI TRẢ VỀ JSON:
   }
 }`
 }
-}
 
 // POST /stylist/chat
 router.post(
