@@ -3,7 +3,7 @@ import asyncHandler from '../middleware/async-handler.js'
 import optionalAuth from '../middleware/optional-auth.js'
 import pool from '../config/db.js'
 import { ollamaChatStream } from '../lib/ollama.js'
-import { getRecentMessages, getUserOrdersForBot, saveMessage, getOrCreateConversation } from '../queries/chat.queries.js'
+import { getRecentMessages, getUserOrdersForBot, saveMessage, getOrCreateConversation, getOrderByNumber } from '../queries/chat.queries.js'
 
 /**
  * Loại bỏ JSON, tiếng Trung và leaked instructions
@@ -26,7 +26,7 @@ function sanitizeResponse(text) {
 const router = Router()
 
 // System prompt cho Support Bot
-function buildSystemPrompt(user, orders) {
+function buildSystemPrompt(user, orders, searchedOrderContext = '') {
   let orderContext = ''
   if (!user) {
     orderContext = '\n\nKhách chưa đăng nhập. Bạn không có quyền truy cập vào bất kỳ thông tin đơn hàng nào. Tuyệt đối không được đoán hoặc bịa ra mã đơn hàng, sản phẩm hay trạng thái.'
@@ -49,6 +49,7 @@ function buildSystemPrompt(user, orders) {
   return `Bạn là trợ lý CSKH của Fashion Store — một cửa hàng thời trang online tại Việt Nam.
 ${userContext}
 ${orderContext}
+${searchedOrderContext}
 
 NHIỆM VỤ CỦA BẠN:
 - Trả lời câu hỏi về đơn hàng, sản phẩm, chính sách
@@ -71,6 +72,10 @@ QUY TẮC TRẢ LỜI (TUYỆT ĐỐI TUÂN THỦ):
 - Luôn dùng tiếng Việt, thân thiện, ngắn gọn.
 - Xưng "em", gọi khách là "anh/chị".
 - KHÔNG BAO GIỜ bịa thông tin về đơn hàng (mã đơn, trạng thái, sản phẩm) không có trong context.
+- Nếu có block [TRA CỨU ĐƠN HÀNG THEO YÊU CẦU] → dùng chính xác thông tin đó để trả lời.
+- Hướng dẫn khách cách tìm mã đơn: "Mã đơn có dạng ORD-YYYYMMDD-XXXX, anh/chị có thể xem trong trang Đơn hàng của tôi".
+- Nếu khách hỏi "đơn hàng của tôi" mà không nêu mã → liệt kê các đơn gần nhất từ context (nếu có).
+- Nếu khách muốn huỷ đơn → kiểm tra status trong context, chỉ hướng dẫn huỷ nếu status là "Chờ xác nhận" (pending), ngược lại giải thích không thể huỷ.
 - Nếu khách hỏi về một đơn hàng cụ thể mà không có trong context -> Trả lời rõ là "Em không tìm thấy thông tin đơn hàng này trong hệ thống".
 - Nếu khách chưa đăng nhập và hỏi về đơn hàng -> Yêu cầu khách đăng nhập để kiểm tra.
 - Nếu khách đã đăng nhập nhưng không có đơn hàng -> Thông báo khách chưa có đơn hàng nào.
@@ -117,6 +122,29 @@ router.post(
       userId ? getUserOrdersForBot(pool, userId) : Promise.resolve([]),
     ])
 
+    // Detect mã đơn
+    let searchedOrderContext = ''
+    const match = message.match(/ORD-\d{8}-\d{4}/i)
+    if (match) {
+      const orderNo = match[0].toUpperCase()
+      if (!userId) {
+        searchedOrderContext = `\n[TRA CỨU ĐƠN HÀNG THEO YÊU CẦU]\nKhách hỏi về mã đơn: ${orderNo}\nKết quả tra cứu: Vui lòng yêu cầu khách đăng nhập để xem thông tin đơn hàng này.`
+      } else {
+        const searchedOrder = await getOrderByNumber(pool, orderNo, userId)
+        if (searchedOrder) {
+          const total = Number(searchedOrder.total).toLocaleString('vi-VN')
+          const createdAt = new Date(searchedOrder.createdAt).toLocaleDateString('vi-VN')
+          const itemsList = searchedOrder.items.map(i => `${i.name} (${i.color}/${i.size}) x${i.quantity} — ${Number(i.price).toLocaleString('vi-VN')}₫`).join('\n  - ')
+          const paymentMethod = searchedOrder.payment?.method || 'Không rõ'
+          const paymentStatusStr = searchedOrder.payment?.status === 'paid' ? 'Đã thanh toán' : 'Chưa thanh toán'
+
+          searchedOrderContext = `\n[TRA CỨU ĐƠN HÀNG THEO YÊU CẦU]\nKhách hỏi về mã đơn: ${orderNo}\nKết quả tra cứu:\n  - Mã đơn: ${orderNo}\n  - Trạng thái: ${translateStatus(searchedOrder.status)}\n  - Tổng tiền: ${total}₫\n  - Ngày đặt: ${createdAt}\n  - Giao tới: ${searchedOrder.shipName} — ${searchedOrder.shipPhone}\n  - Địa chỉ: ${searchedOrder.shipAddress}, ${searchedOrder.shipCity}\n  - Sản phẩm: \n  - ${itemsList}\n  - Thanh toán: ${paymentMethod} — ${paymentStatusStr}\n`
+        } else {
+          searchedOrderContext = `\n[TRA CỨU ĐƠN HÀNG THEO YÊU CẦU]\nKhách hỏi về mã đơn: ${orderNo}\nKết quả tra cứu: Không tìm thấy đơn hàng với mã này (hoặc đơn hàng không thuộc về khách).`
+        }
+      }
+    }
+
     // Lưu message của user
     await saveMessage(pool, { conversationId, role: 'user', content: message })
 
@@ -137,7 +165,7 @@ router.post(
     res.write(`data: ${JSON.stringify({ type: 'conversation_id', id: conversationId })}\n\n`)
 
     await ollamaChatStream({
-      system: buildSystemPrompt(req.user, orders),
+      system: buildSystemPrompt(req.user, orders, searchedOrderContext),
       messages,
       options: {
         stop: ["<|endoftext|>", "NHIỆM VỤ:", "QUY TẮC:", "Khách:", "Bot:", "Assistant:"],

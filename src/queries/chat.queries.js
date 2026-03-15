@@ -92,3 +92,48 @@ export async function getUserOrdersForBot(pool, userId) {
   )
   return rows
 }
+
+/**
+ * Tra cứu đơn hàng theo mã đơn (ẩn detail nếu không phải của user)
+ */
+export async function getOrderByNumber(pool, orderNo, userId) {
+  const { rows } = await pool.query(
+    `SELECT
+      o.order_no        AS "orderNo",
+      o.status,
+      o.total,
+      o.subtotal,
+      o.shipping_fee    AS "shippingFee",
+      o.discount_amount AS "discountAmount",
+      o.created_at      AS "createdAt",
+      o.ship_name       AS "shipName",
+      o.ship_phone      AS "shipPhone",
+      o.ship_address    AS "shipAddress",
+      o.ship_city       AS "shipCity",
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'name',      oi.product_name,
+            'quantity',  oi.quantity,
+            'price',     oi.unit_price,
+            'size',      oi.size_label,
+            'color',     oi.color_name
+          ) ORDER BY oi.id
+        ) FILTER (WHERE oi.id IS NOT NULL),
+        '[]'
+      ) AS items,
+      row_to_json(
+        (SELECT r FROM (
+          SELECT p.method, p.status, p.amount
+          FROM payments p WHERE p.order_id = o.id LIMIT 1
+        ) r)
+      ) AS payment
+     FROM orders o
+     LEFT JOIN order_items oi ON oi.order_id = o.id
+     WHERE o.order_no = $1 AND o.user_id = $2
+     GROUP BY o.id`,
+    [orderNo, userId]
+  )
+  return rows[0] || null
+}
+
