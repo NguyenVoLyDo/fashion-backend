@@ -189,11 +189,19 @@ router.post(
     // Fetch sản phẩm nếu đủ điều kiện
     let products = []
     if (parsed.filters?.shouldRecommend && !parsed.shouldAskMore) {
+      // Logic xác định target gender cho filter
+      let filterGender = parsed.filters?.targetGender || parsed.collectedInfo?.targetGender;
+      
+      // Nếu không có thông tin giới tính đích mà là mua cho bản thân, dùng giới tính profile
+      if (!filterGender && parsed.collectedInfo?.recipientDescription?.toLowerCase().includes('bản thân')) {
+        filterGender = profile?.gender;
+      }
+
       products = await getProductRecommendations(pool, {
         categorySlug: parsed.filters.categorySlug || undefined,
         maxPrice: parsed.filters.maxPrice || undefined,
         minPrice: parsed.filters.minPrice || undefined,
-        gender: profile?.gender || undefined,
+        gender: filterGender || undefined,
         excludeProductIds: excludeIds,
         limit: 4,
       })
