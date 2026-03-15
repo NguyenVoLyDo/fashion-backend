@@ -53,12 +53,73 @@ function sanitizeResponse(text) {
   return clean
 }
 
+/**
+ * Extract state from chat history using Regex
+ */
+function extractCollectedInfo(messages) {
+  const info = {
+    recipientDescription: null,
+    targetGender: null,
+    occasion: null,
+    style: null,
+    budget: null
+  }
+
+  messages.forEach(m => {
+    const text = m.content.toLowerCase()
+    
+    // 1. Đối tượng
+    if (text.includes('cho bản thân') || text.includes('cho mình') || text.includes('cho tôi')) info.recipientDescription = 'Bản thân'
+    if (text.includes('tặng bạn gái') || text.includes('tặng vợ') || text.includes('cho vợ')) {
+      info.recipientDescription = 'Bạn gái / Vợ'
+      info.targetGender = 'female'
+    }
+    if (text.includes('tặng bạn trai') || text.includes('tặng chồng') || text.includes('cho chồng')) {
+      info.recipientDescription = 'Bạn trai / Chồng'
+      info.targetGender = 'male'
+    }
+    if (text.includes('cho con') || text.includes('cho bé')) info.recipientDescription = 'Con cái / Người thân'
+
+    // 2. Giới tính
+    if (text.includes(' nam') || text.includes(' bé trai') || text.includes(' trai')) info.targetGender = 'male'
+    if (text.includes(' nữ') || text.includes(' bé gái') || text.includes(' gái')) info.targetGender = 'female'
+
+    // 3. Dịp
+    if (text.includes('đi làm') || text.includes('công sở')) info.occasion = 'Đi làm'
+    if (text.includes('dạo phố') || text.includes('đi chơi')) info.occasion = 'Dạo phố'
+    if (text.includes('hẹn hò') || text.includes('đi date')) info.occasion = 'Hẹn hò'
+    if (text.includes('sự kiện') || text.includes('tiệc')) info.occasion = 'Sự kiện'
+
+    // 4. Phong cách
+    if (text.includes('tối giản') || text.includes('minimalist')) info.style = 'Tối giản'
+    if (text.includes('thanh lịch') || text.includes('elegant')) info.style = 'Thanh lịch'
+    if (text.includes('năng động') || text.includes('active')) info.style = 'Năng động'
+    if (text.includes('cá tính') || text.includes('individual')) info.style = 'Cá tính'
+
+    // 5. Ngân sách
+    const budgetMatch = text.match(/(\d+)\s*(k|triệu|tr|vnd|đ)/i)
+    if (budgetMatch) {
+      let val = parseInt(budgetMatch[1])
+      if (budgetMatch[2].toLowerCase() === 'k') val *= 1000
+      if (budgetMatch[2].toLowerCase() === 'triệu' || budgetMatch[2].toLowerCase() === 'tr') val *= 1000000
+      info.budget = val
+    }
+  })
+
+  return info
+}
+
 // System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
-function buildStylistPrompt(user, profile, purchaseHistory, availableCategories) {
+function buildStylistPrompt(user, profile, historyInfo, purchaseHistory) {
   const userAge = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
   const userGender = profile?.gender || null;
-  const currentInfo = profile?.collectedInfo || {};
-  const { recipientDescription, targetGender, occasion, style, budget } = currentInfo;
+  
+  // Ưu tiên thông tin vừa extract từ history, nếu không có mới dùng từ profile
+  const recipientDescription = historyInfo.recipientDescription || null;
+  const targetGender = historyInfo.targetGender || null;
+  const occasion = historyInfo.occasion || null;
+  const style = historyInfo.style || null;
+  const budget = historyInfo.budget || null;
 
   const profileCtx = `Thông tin chủ tài khoản: ${userGender === 'male' ? 'Nam' : userGender === 'female' ? 'Nữ' : 'Chưa rõ'}${userAge ? `, ${userAge} tuổi` : ''}.`
 
@@ -254,7 +315,7 @@ LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
         const refinedReply = await ollamaChat({
           system: "Bạn là Stylist AI. Hãy viết câu trả lời giới thiệu sản phẩm thật. Ngắn gọn, tự nhiên, TIẾNG VIỆT 100%.",
           messages: [
-            ...messages.slice(-2),
+            ...messagesForHistory.slice(-2),
             { role: 'user', content: contextualPrompt }
           ],
           maxTokens: 512,
