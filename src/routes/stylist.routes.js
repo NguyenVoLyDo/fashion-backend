@@ -22,20 +22,20 @@ const router = Router()
 function sanitizeResponse(text) {
   if (!text) return ''
   
-  // 1. Remove anything from the first '{' or '```json' to the end of the string
-  // Use a more aggressive split to catch JSON leakage at the end
+  // 1. Remove everything from the first '{' or '```json'
   let clean = text.split(/\{|```json/)[0]
   
-  // 2. Remove Chinese characters
-  clean = clean.replace(/[\u4e00-\u9fa5]/g, '')
+  // 2. Remove Chinese characters & Japanese/Korean if any
+  clean = clean.replace(/[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/g, '')
   
-  // 3. Strip common leaked system keywords and trailing punctuation artifacts
+  // 3. Remove weird punctuation artifacts like full-width question marks
+  clean = clean.replace(/？/g, '?').replace(/：/g, ':')
+  
+  // 4. Strip common leaked system keywords and artifacts
   const artifacts = [
     /LƯU Ý:/gi, /QUY TẮC:/gi, /NHIỆM VỤ:/gi, /JSON output/gi,
     /Hãy viết lại/gi, /CHỈ TRẢ VỀ TEXT/gi, /"filters":/gi, /"collectedInfo":/gi,
-    /,\s*$/g, // Trailing comma
-    /,\s*"filters".*$/gi, // Trailing filter artifact
-    /\}\s*$/g // Trailing brace
+    /,\s*$/g, /,\s*"filters".*$/gi, /\}\s*$/g
   ]
   artifacts.forEach(regex => {
     clean = clean.replace(regex, '')
@@ -43,8 +43,8 @@ function sanitizeResponse(text) {
   
   clean = clean.trim()
   
-  if (!clean || clean.length < 5) {
-    return "Tuyệt vời! Mình đã hiểu nhu cầu của bạn. Dưới đây là những gợi ý phù hợp nhất nhé:"
+  if (!clean || clean.length < 3) {
+    return "Tuyệt vời! Dưới đây là những gợi ý phù hợp nhất cho nhu cầu của bạn nhé:"
   }
   
   return clean
@@ -52,72 +52,43 @@ function sanitizeResponse(text) {
 
 // System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
 function buildStylistPrompt(user, profile, purchaseHistory, availableCategories) {
-  const userAge = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
-  const userGender = profile?.gender || null;
-
   const currentInfo = profile?.collectedInfo || {};
   const { recipientDescription, targetGender, occasion, style, budget } = currentInfo;
 
-  const profileCtx = `Thông tin chủ tài khoản: ${userGender || 'Chưa biết'}${userAge ? `, ${userAge} tuổi` : ''}.`
+  return `Bạn là Stylist AI chuyên nghiệp. Hãy tư vấn ngắn gọn, đi thẳng vào vấn đề.
+TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT. KHÔNG DÙNG TIẾNG TRUNG.
 
-  const stateCtx = `TRẠNG THÁI HIỆN TẠI:
+🚩 TRẠNG THÁI HIỆN TẠI (Chỉ hỏi field nào là "Chưa biết"):
 - Đối tượng: ${recipientDescription || 'Chưa biết'}
-- Giới tính người mặc: ${targetGender || 'Chưa biết'}
-- Dịp: ${occasion || 'Chưa biết'}
-- Phong cách: ${style || 'Chưa biết'}
-- Ngân sách: ${budget || 'Chưa biết'}`
-
-  const historyContext = purchaseHistory.length > 0
-    ? `\nLịch sử mua hàng của khách:
-${purchaseHistory.map(p =>
-  `- ${p.name} (${p.categoryName}, màu ${p.colorName}, size ${p.sizeName})`
-).join('\n')}`
-    : '\nKhách chưa có lịch sử mua hàng.'
-
-  return `Bạn là Personal Stylist AI chuyên nghiệp. Bạn đang tư vấn chọn đồ cho khách hàng.
-CHỈ TRẢ LỜI BẰNG TIẾNG VIỆT. TUYỆT ĐỐI KHÔNG DÙNG TIẾNG TRUNG.
-
-🚩 QUY TRÌNH TƯ VẤN 4 BƯỚC:
-Bước 0: Xác định đối tượng (mua cho ai?) và Giới tính người mặc.
-   - Nếu user nói "cho bạn gái" -> targetGender: female.
-   - Nếu user nói "cho mình" -> lấy từ chủ tài khoản.
-Bước 1: Dịp mặc. Bước 2: Phong cách. Bước 3: Ngân sách (VD: 500k).
-
-🚩 TRẠNG THÁI HIỆN TẠI (CHỈ HỎI CÁI ĐANG "Chưa biết"):
-- Đối tượng: ${recipientDescription || 'Chưa biết'}
-- Giới tính người mặc: ${targetGender || 'Chưa biết'}
+- Giới tính (targetGender): ${targetGender || 'Chưa biết'}
 - Dịp: ${occasion || 'Chưa biết'}
 - Phong cách: ${style || 'Chưa biết'}
 - Ngân sách: ${budget || 'Chưa biết'}
 
-LUẬT QUAN TRỌNG:
-1. Nếu thông tin nào ĐÃ CÓ trong TRẠNG THÁI HIỆN TẠI, TUYỆT ĐỐI KHÔNG HỎI LẠI.
-2. Nếu ĐÃ CÓ Ngân sách -> shouldRecommend: true, shouldAskMore: false.
-3. Nếu CHƯA CÓ Ngân sách -> shouldRecommend: false, shouldAskMore: true.
-4. Mỗi lần chỉ hỏi 1 câu ngắn gọn về 1 thông tin còn thiếu.
+🚩 QUY TẮC:
+1. KHÔNG hỏi lại thông tin đã có.
+2. Nếu THIẾU thông tin -> hỏi 1 câu DUY NHẤT cực ngắn. 
+3. Nếu ĐỦ 5 thông tin hoặc CÓ Ngân sách -> set shouldRecommend: true, shouldAskMore: false.
+4. Gợi ý sản phẩm thuộc danh mục: ${availableCategories.join(', ')}.
 
---------------------------------------------------
-PHẢI TRẢ VỀ DẠNG JSON:
+PHẢI TRẢ VỀ JSON:
 {
-  "reply": "câu trả lời (tiếng Việt)",
+  "reply": "câu trả lời ngắn gọn tiếng Việt",
   "shouldAskMore": boolean, 
   "collectedInfo": {
-    "recipientDescription": "ai: bản thân/bạn gái/con trai...",
-    "targetGender": "male" | "female" | null,
+    "recipientDescription": "ai?",
+    "targetGender": "male/female",
     "occasion": "...", 
     "style": "...", 
-    "budget": number | null 
+    "budget": number
   },
   "filters": {
-    "categorySlug": "...", 
-    "maxPrice": number | null,
-    "minPrice": number | null,
-    "targetGender": "male" | "female" | null,
+    "categorySlug": "...",
+    "targetGender": "male/female",
     "shouldRecommend": boolean 
   }
+}`
 }
-
-Danh mục: ${availableCategories.join(', ')}`
 }
 
 // POST /stylist/chat
