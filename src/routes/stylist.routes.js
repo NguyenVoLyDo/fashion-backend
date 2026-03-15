@@ -219,9 +219,11 @@ router.post(
       parsed.filters.shouldRecommend = true
     }
 
-    // Fetch sản phẩm nếu đủ điều kiện
+    // Fetch sản phẩm nếu đủ điều kiện (recommend: true HOẶC bot không muốn hỏi thêm nữa)
     let products = []
-    if (parsed.filters?.shouldRecommend && !parsed.shouldAskMore) {
+    const isReadyToRecommend = parsed.filters?.shouldRecommend || !parsed.shouldAskMore;
+    
+    if (isReadyToRecommend) {
       // Logic xác định target gender cho filter
       let filterGender = parsed.filters?.targetGender || parsed.collectedInfo?.targetGender || collectedInfo.targetGender;
       
@@ -260,20 +262,23 @@ router.post(
       }
 
       if (products.length > 0) {
+        // Đã có sản phẩm -> Kết thúc lượt hỏi
+        parsed.shouldAskMore = false;
+        parsed.filters.shouldRecommend = true;
+
         const productListStr = products.map(p => `- ${p.name} (giá: ${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
-        const contextualPrompt = `Dưới đây là danh sách sản phẩm thật từ cửa hàng:
+        const contextualPrompt = `Dưới đây là danh sách sản phẩm THẬT từ database:
 ${productListStr}
 
-Hãy viết lại câu trả lời sau để giới thiệu khéo léo ít nhất 2 sản phẩm trên. 
-Giữ phong cách chuyên nghiệp, thời trang và thân thiện. Không được bịa thêm sản phẩm khác. 
-Sửa lỗi kỹ thuật: "vo" -> "vợ".
+HÃY THAY THẾ hoàn toàn câu trả lời cũ bằng một câu trả lời mới thân thiện và dẫn dắt khéo léo vào các sản phẩm trên.
+TUYỆT ĐỐI KHÔNG lặp lại danh sách sản phẩm nếu nó đã có trong câu trả lời cũ.
+TUYỆT ĐỐI KHÔNG giới thiệu sản phẩm không có trong danh sách trên.
 Câu trả lời cũ: "${parsed.reply}"
 
-LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI. TUYỆT ĐỐI KHÔNG ĐẶT CÂU HỎI MỚI. 
-Nếu câu trả lời cũ có câu hỏi (VD: "Bạn mua đồ cho ai?"), hãy LOẠI BỎ nó và chỉ tập trung vào việc giới thiệu sản phẩm.`
+LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
 
         const refinedReply = await ollamaChat({
-          system: "Bạn là Stylist AI chuyên nghiệp. Hãy giới thiệu sản phẩm thật một cách tự nhiên bằng tiếng Việt chuẩn. TUYỆT ĐỐI KHÔNG DÙNG TIẾNG TRUNG.",
+          system: "Bạn là Stylist AI. Hãy viết câu trả lời giới thiệu sản phẩm thật. Ngắn gọn, tự nhiên, TIẾNG VIỆT 100%.",
           messages: [
             ...messages.slice(-2),
             { role: 'user', content: contextualPrompt }
