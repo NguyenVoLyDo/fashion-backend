@@ -20,6 +20,7 @@ import uploadRoutes from './routes/upload.routes.js';
 import profileRoutes from './routes/profile.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import stylistRoutes from './routes/stylist.routes.js';
+import faqRoutes from './routes/faq.routes.js';
 import errorHandler from './middleware/error-handler.js';
 import logger from './middleware/logger.js';
 
@@ -120,6 +121,7 @@ app.use('/api/v1', uploadRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/stylist', stylistRoutes);
+app.use('/api/v1/faqs', faqRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {

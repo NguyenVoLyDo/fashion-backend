@@ -3,6 +3,7 @@ import asyncHandler from '../middleware/async-handler.js'
 import optionalAuth from '../middleware/optional-auth.js'
 import pool from '../config/db.js'
 import { ollamaChatStream } from '../lib/ollama.js'
+import { buildRagContext } from '../lib/rag.js'
 import { getRecentMessages, getUserOrdersForBot, saveMessage, getOrCreateConversation, getOrderByNumber } from '../queries/chat.queries.js'
 
 /**
@@ -26,7 +27,7 @@ function sanitizeResponse(text) {
 const router = Router()
 
 // System prompt cho Support Bot
-function buildSystemPrompt(user, orders, searchedOrderContext = '') {
+function buildSystemPrompt(user, orders, searchedOrderContext = '', ragContext = '') {
   let orderContext = ''
   if (!user) {
     orderContext = '\n\nKhách chưa đăng nhập. Bạn không có quyền truy cập vào bất kỳ thông tin đơn hàng nào. Tuyệt đối không được đoán hoặc bịa ra mã đơn hàng, sản phẩm hay trạng thái.'
@@ -46,23 +47,21 @@ function buildSystemPrompt(user, orders, searchedOrderContext = '') {
     ? `\nKhách hàng đang đăng nhập: ${user.fullName || user.email}`
     : '\nKhách chưa đăng nhập.'
 
+  const ragSection = ragContext
+    ? `\n\n[TÀI LIỆU THAM KHẢO — Dùng thông tin sau để trả lời khách]\n${ragContext}\nLưu ý: Chỉ trả lời dựa trên tài liệu này. Nếu không thấy thông tin, hãy hướng dẫn khách gọi hotline.`
+    : ''
+
   return `Bạn là trợ lý CSKH của Fashion Store — một cửa hàng thời trang online tại Việt Nam.
 ${userContext}
 ${orderContext}
 ${searchedOrderContext}
+${ragSection}
 
 NHIỆM VỤ CỦA BẠN:
 - Trả lời câu hỏi về đơn hàng, sản phẩm, chính sách
 - Hỗ trợ tra cứu trạng thái đơn hàng
 - Giải quyết khiếu nại và thắc mắc
 - Tư vấn sản phẩm phù hợp
-
-CHÍNH SÁCH CỬA HÀNG:
-- Miễn phí vận chuyển đơn từ 500.000₫
-- Phí ship: 30.000₫ cho đơn dưới 500.000₫
-- Đổi trả trong 7 ngày kể từ ngày nhận hàng
-- Sản phẩm còn nguyên tem mác, chưa qua sử dụng
-- Hoàn tiền trong 3-5 ngày làm việc
 
 TRẠNG THÁI ĐƠN HÀNG:
 - Chờ xác nhận → Đã xác nhận → Đang xử lý → Đang giao → Đã giao → Hoàn thành
@@ -116,10 +115,11 @@ router.post(
     const conversationId = existingConvId
       || await getOrCreateConversation(pool, { userId, sessionId, type: 'support' })
 
-    // Load history + user orders
-    const [history, orders] = await Promise.all([
+    // Load history + user orders + RAG context
+    const [history, orders, ragContext] = await Promise.all([
       getRecentMessages(pool, conversationId, 10),
       userId ? getUserOrdersForBot(pool, userId) : Promise.resolve([]),
+      buildRagContext(pool, message)
     ])
 
     // Detect mã đơn
@@ -165,7 +165,7 @@ router.post(
     res.write(`data: ${JSON.stringify({ type: 'conversation_id', id: conversationId })}\n\n`)
 
     await ollamaChatStream({
-      system: buildSystemPrompt(req.user, orders, searchedOrderContext),
+      system: buildSystemPrompt(req.user, orders, searchedOrderContext, ragContext),
       messages,
       options: {
         stop: ["<|endoftext|>", "NHIỆM VỤ:", "QUY TẮC:", "Khách:", "Bot:", "Assistant:"],
