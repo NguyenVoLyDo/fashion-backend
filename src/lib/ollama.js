@@ -8,6 +8,7 @@ const OLLAMA_HEADERS = {
  * Non-streaming chat — dùng cho Stylist Bot (cần parse JSON)
  */
 export async function ollamaChat({ system, messages, maxTokens = 512, temperature = 0.7 }) {
+  console.log(`Ollama Request: ${OLLAMA_URL}/api/chat`, { model: OLLAMA_MODEL });
   const response = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: OLLAMA_HEADERS,
@@ -20,7 +21,9 @@ export async function ollamaChat({ system, messages, maxTokens = 512, temperatur
   })
 
   if (!response.ok) {
-    throw new Error(`Ollama error: ${response.status} ${response.statusText}`)
+    const errorText = await response.text();
+    console.error(`Ollama Error Response: ${response.status} ${response.statusText}`, errorText);
+    throw new Error(`Ollama error: ${response.status} ${response.statusText} - ${errorText}`)
   }
 
   const data = await response.json()

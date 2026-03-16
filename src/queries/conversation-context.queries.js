@@ -32,7 +32,7 @@ export async function upsertContext(pool, conversationId, updates) {
     
     for (const [key, value] of Object.entries(updates)) {
       if (value !== null && value !== undefined) {
-        if (key === 'excluded_product_ids') {
+        if (['excluded_product_ids', 'liked_product_ids', 'disliked_product_ids', 'disliked_reasons'].includes(key)) {
           // Special case: append to array
           setClauses.push(`${key} = ARRAY(SELECT DISTINCT UNNEST(ARRAY_CAT(${key}, $${paramIdx})))`)
         } else {
@@ -51,6 +51,29 @@ export async function upsertContext(pool, conversationId, updates) {
       )
     }
   }
+  
+  return getContext(pool, conversationId)
+}
+
+/**
+ * Move products from excluded (suggested) to disliked
+ */
+export async function moveExcludedToDisliked(pool, conversationId, reason = null) {
+  const current = await getContext(pool, conversationId)
+  if (!current || !current.excluded_product_ids || current.excluded_product_ids.length === 0) return null
+
+  const productIds = current.excluded_product_ids
+  const reasons = productIds.map(() => reason || 'No specific reason')
+
+  await pool.query(
+    `UPDATE conversation_context SET 
+      disliked_product_ids = ARRAY(SELECT DISTINCT UNNEST(ARRAY_CAT(disliked_product_ids, $2))),
+      disliked_reasons = disliked_reasons || $3,
+      excluded_product_ids = '{}',
+      updated_at = NOW()
+     WHERE conversation_id = $1`,
+    [conversationId, productIds, reasons]
+  )
   
   return getContext(pool, conversationId)
 }
@@ -77,6 +100,9 @@ export async function resetContext(pool, conversationId) {
       max_price = NULL, 
       min_price = NULL, 
       excluded_product_ids = '{}',
+      disliked_product_ids = '{}',
+      disliked_reasons = '{}',
+      liked_product_ids = '{}',
       recipient = NULL,
       target_gender = NULL,
       updated_at = NOW()

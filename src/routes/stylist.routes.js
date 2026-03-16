@@ -21,7 +21,8 @@ import {
   getContext,
   upsertContext,
   appendExcludedProducts,
-  resetContext
+  resetContext,
+  moveExcludedToDisliked,
 } from '../queries/conversation-context.queries.js'
 
 const router = Router()
@@ -129,6 +130,33 @@ function extractContextFromMessage(message, profile) {
     updates.min_price = parseInt(val) * 1000
   }
 
+  // 6. Feedback Detection
+  const negativePatterns = /không thích|không ưa|xấu|chán|không phù hợp|không hợp|không muốn cái này|bỏ cái này|xem cái khác|kiểu khác|mẫu khác|gợi ý khác/
+  const positivePatterns = /thích cái này|đẹp|hợp|oke|được đó|mua cái này/
+  
+  if (negativePatterns.test(text)) {
+    updates.feedback = {
+      hasFeedback: true,
+      feedbackType: 'negative',
+      feedbackTarget: text.includes('cái này') ? 'specific' : 'last_suggestions'
+    }
+  } else if (positivePatterns.test(text)) {
+    updates.feedback = {
+      hasFeedback: true,
+      feedbackType: 'positive',
+      feedbackTarget: text.includes('cái này') ? 'specific' : 'last_suggestions'
+    }
+  }
+
+  // Price complaints
+  if (text.match(/đắt quá|mắc quá|giá cao|hơi cao/)) {
+    if (!updates.feedback) updates.feedback = { hasFeedback: true, feedbackType: 'negative' }
+    updates.feedback.priceComplaint = 'too_expensive'
+  } else if (text.match(/rẻ quá|giá thấp/)) {
+    if (!updates.feedback) updates.feedback = { hasFeedback: true, feedbackType: 'neutral' }
+    updates.feedback.priceComplaint = 'too_cheap'
+  }
+
   return updates
 }
 
@@ -196,6 +224,13 @@ function buildStylistPrompt(profile, context = {}) {
   const styleMap = { 'minimal': 'Tối giản', 'elegant': 'Thanh lịch', 'dynamic': 'Năng động', 'unique': 'Cá tính' };
 
   const excludedCount = context.excluded_product_ids?.length || 0;
+  const dislikedCount = context.disliked_product_ids?.length || 0;
+
+  let feedbackSection = '';
+  if (dislikedCount > 0) {
+    feedbackSection = `\nPHẢN HỒI CỦA KHÁCH:
+- Đã xem và không thích ${dislikedCount} sản phẩm trước đó. TUYỆT ĐỐI KHÔNG gợi ý lại.`;
+  }
 
   return `Bạn là Stylist AI chuyên nghiệp. Hãy tư vấn ngắn gọn nhưng đầy đủ, tự nhiên.
 TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT.
@@ -204,7 +239,7 @@ TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT.
 ${context.target_gender ? `- Giới tính người mặc: ${genderMap[context.target_gender] || context.target_gender}` : ''}
 ${context.occasion ? `- Dịp mặc: ${occasionMap[context.occasion] || context.occasion}` : ''}
 ${context.style ? `- Phong cách: ${styleMap[context.style] || context.style}` : ''}
-${context.max_price ? `- Ngân sách tối đa: ${context.max_price.toLocaleString('vi-VN')}₫` : ''}
+${context.max_price ? `- Ngân sách tối đa: ${context.max_price.toLocaleString('vi-VN')}₫` : ''}${feedbackSection}
 
 QUY TẮC:
 - KHÔNG hỏi lại bất kỳ thông tin nào đã có trong "ĐÃ BIẾT" ở trên.
@@ -272,20 +307,43 @@ router.post(
     // 3. Extract từ tin nhắn hiện tại
     const extracted = extractContextFromMessage(message, profile)
     
-    // 4. Merge & Save context (upsertContext handles merging non-nulls)
+    // 4. Handle feedback BEFORE merging to context
+    if (extracted.feedback?.hasFeedback) {
+      if (extracted.feedback.feedbackType === 'negative') {
+        if (extracted.feedback.feedbackTarget === 'last_suggestions') {
+          // Move suggested (excluded) to disliked
+          context = await moveExcludedToDisliked(pool, conversationId, extracted.feedback.priceComplaint || 'User rejected Suggestions')
+        }
+        
+        // Price adjustments
+        if (extracted.feedback.priceComplaint === 'too_expensive' && context.max_price) {
+          extracted.max_price = Math.floor((context.max_price * 0.8) / 10000) * 10000
+        } else if (extracted.feedback.priceComplaint === 'too_cheap') {
+          const currentMin = context.min_price || 0
+          extracted.min_price = Math.max(currentMin + 100000, 200000)
+        }
+      } else if (extracted.feedback.feedbackType === 'positive') {
+        // If they like it, we store it (last excluded as liked if target is last_suggestions)
+        if (extracted.feedback.feedbackTarget === 'last_suggestions' && context.excluded_product_ids?.length > 0) {
+          extracted.liked_product_ids = context.excluded_product_ids
+        }
+      }
+    }
+
+    // 5. Merge & Save context
     context = await upsertContext(pool, conversationId, extracted)
 
     // Save user message
     await saveMessage(pool, { conversationId, role: 'user', content: message })
 
-    // Load recent history for AI context (just for tone/flow, context values are in system prompt)
+    // Load recent history
     const dbHistory = await getRecentMessages(pool, conversationId, 6)
     const messagesForHistory = dbHistory.map(m => ({ role: m.role, content: m.content }))
 
-    // 5. Build system prompt với context rõ ràng
+    // 6. Build system prompt
     const systemPrompt = buildStylistPrompt(profile, context)
 
-    // 6. Gọi Ollama
+    // 7. Gọi Ollama
     const raw = await ollamaChat({
       system: systemPrompt,
       messages: messagesForHistory,
@@ -318,11 +376,12 @@ router.post(
       }
     }).catch(err => console.error('Pref extract async error:', err))
 
-    // 7. Determine if should recommend
+    // 8. Determine if should recommend
     const missingCrucial = !context.target_gender || !context.occasion;
     const userTurns = messagesForHistory.filter(m => m.role === 'user').length;
+    const isNegativeFeedback = extracted.feedback?.feedbackType === 'negative';
 
-    if (!missingCrucial || userTurns >= 4) {
+    if (!missingCrucial || userTurns >= 4 || isNegativeFeedback) {
       parsed.filters.shouldRecommend = true;
       parsed.shouldAskMore = false;
     }
@@ -336,7 +395,10 @@ router.post(
         maxPrice: context.max_price || null,
         minPrice: context.min_price || null,
         gender: context.target_gender || null,
-        excludeProductIds: context.excluded_product_ids || [],
+        excludeProductIds: [
+          ...(context.excluded_product_ids || []),
+          ...(context.disliked_product_ids || [])
+        ],
         preferredColors: prefColors,
         dislikedColors: [],
         limit: 4
@@ -379,6 +441,30 @@ LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
       role: 'assistant', 
       content: parsed.reply 
     })
+
+    // 9. Learn from liked products (Async)
+    if (extracted.liked_product_ids?.length > 0 && userId) {
+      (async () => {
+        try {
+          const { rows: likedProds } = await pool.query(
+            'SELECT p.*, c.name as cat_name FROM products p JOIN categories c ON p.category_id = c.id WHERE p.id = ANY($1)',
+            [extracted.liked_product_ids]
+          )
+          
+          if (likedProds.length > 0) {
+            const newPrefs = []
+            likedProds.forEach(p => {
+              newPrefs.push({ key: 'preferred_styles', value: p.style || 'minimal', source: 'inferred' })
+              // Extract colors if possible, or just use general ones
+              if (p.cat_name) newPrefs.push({ key: 'preferred_categories', value: p.cat_name, source: 'inferred' })
+            })
+            await upsertPreferences(pool, userId, newPrefs)
+          }
+        } catch (e) {
+          console.error('Style learning error:', e)
+        }
+      })()
+    }
 
     // SSE or Regular JSON? Original code used SSE but didn't actually stream chunks.
     // Fixed format to match original expectation
