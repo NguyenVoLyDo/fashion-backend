@@ -11,7 +11,6 @@ const router = Router()
 router.post(
   '/upload/product',
   authMiddleware,
-  adminMiddleware,
   uploadProduct.single('image'),   // field name: "image"
   asyncHandler(async (req, res) => {
     if (!req.file) {

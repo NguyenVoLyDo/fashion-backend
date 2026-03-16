@@ -5,8 +5,13 @@
 
 // ── getProductReviews ─────────────────────────────────────────────────────────
 
-export async function getProductReviews(pool, { productId, page, limit }) {
+export async function getProductReviews(pool, { productId, page, limit, sort = 'newest' }) {
     const offset = (page - 1) * limit;
+
+    let orderBy = 'r.created_at DESC';
+    if (sort === 'highest') orderBy = 'r.rating DESC, r.created_at DESC';
+    if (sort === 'lowest') orderBy = 'r.rating ASC, r.created_at DESC';
+    if (sort === 'images') orderBy = 'jsonb_array_length(r.images) DESC, r.created_at DESC';
 
     const { rows } = await pool.query(`
         SELECT 
@@ -14,6 +19,7 @@ export async function getProductReviews(pool, { productId, page, limit }) {
             r.rating, 
             r.title, 
             r.body, 
+            r.images,
             r.is_verified AS "isVerified", 
             r.created_at AS "createdAt",
             u.full_name AS "authorName",
@@ -22,7 +28,7 @@ export async function getProductReviews(pool, { productId, page, limit }) {
         FROM reviews r
         JOIN users u ON u.id = r.user_id
         WHERE r.product_id = $1 AND r.is_visible = TRUE
-        ORDER BY r.created_at DESC
+        ORDER BY ${orderBy}
         LIMIT $2 OFFSET $3
     `, [productId, limit, offset]);
 
@@ -44,7 +50,7 @@ export async function getProductReviews(pool, { productId, page, limit }) {
 
 // ── createReview ──────────────────────────────────────────────────────────────
 
-export async function createReview(pool, { productId, userId, orderId, rating, title, body }) {
+export async function createReview(pool, { productId, userId, orderId, rating, title, body, images = [] }) {
     // 1. Check if user is verified buyer
     let isVerified = false;
     if (orderId) {
@@ -65,10 +71,10 @@ export async function createReview(pool, { productId, userId, orderId, rating, t
     // 2. Insert into reviews
     try {
         const { rows } = await pool.query(`
-            INSERT INTO reviews (product_id, user_id, order_id, rating, title, body, is_verified)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO reviews (product_id, user_id, order_id, rating, title, body, images, is_verified)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-        `, [productId, userId, orderId || null, rating, title || null, body || null, isVerified]);
+        `, [productId, userId, orderId || null, rating, title || null, body || null, JSON.stringify(images), isVerified]);
         
         return rows[0];
     } catch (err) {
