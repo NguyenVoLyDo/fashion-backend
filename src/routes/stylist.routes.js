@@ -6,6 +6,7 @@ import { ollamaChat } from '../lib/ollama.js'
 import {
   getProductRecommendations,
   getUserPurchaseHistory,
+  getOutfitRecommendation,
 } from '../queries/stylist.queries.js'
 import { getUserProfile } from '../queries/profile.queries.js'
 import { 
@@ -155,6 +156,14 @@ function extractContextFromMessage(message, profile) {
   } else if (text.match(/rẻ quá|giá thấp/)) {
     if (!updates.feedback) updates.feedback = { hasFeedback: true, feedbackType: 'neutral' }
     updates.feedback.priceComplaint = 'too_cheap'
+  }
+
+  // 7. Outfit Detection
+  const outfitKeywords = /phối đồ|bộ đồ|outfit|mix đồ|phối với|mặc với gì|kết hợp với gì|đi cùng với|gợi ý bộ|tìm bộ đồ/
+  if (outfitKeywords.test(text)) {
+    updates.requestType = 'outfit'
+  } else if (text.match(/tìm áo|tìm quần|tìm váy|tìm sản phẩm|tìm món/)) {
+    updates.requestType = 'single'
   }
 
   return updates
@@ -380,56 +389,139 @@ router.post(
     const missingCrucial = !context.target_gender || !context.occasion;
     const userTurns = messagesForHistory.filter(m => m.role === 'user').length;
     const isNegativeFeedback = extracted.feedback?.feedbackType === 'negative';
+    const isOutfitRequest = context.request_Type === 'outfit' || extracted.requestType === 'outfit';
 
-    if (!missingCrucial || userTurns >= 4 || isNegativeFeedback) {
+    if (!missingCrucial || userTurns >= 4 || isNegativeFeedback || isOutfitRequest) {
       parsed.filters.shouldRecommend = true;
       parsed.shouldAskMore = false;
     }
 
     let products = []
+    let outfit = null
+    let outfitMode = false
+
     if (parsed.filters?.shouldRecommend || !parsed.shouldAskMore) {
-      const prefColors = []; // Could fetch from dbPreferences if needed
-      
-      const recommendationParams = {
-        categorySlug: parsed.filters.categorySlug || null,
-        maxPrice: context.max_price || null,
-        minPrice: context.min_price || null,
-        gender: context.target_gender || null,
-        excludeProductIds: [
-          ...(context.excluded_product_ids || []),
-          ...(context.disliked_product_ids || [])
-        ],
-        preferredColors: prefColors,
-        dislikedColors: [],
-        limit: 4
+      if (isOutfitRequest) {
+        // Task 3: Outfit generation flow
+        try {
+          const candidates = await getOutfitRecommendation(pool, {
+            gender: context.target_gender,
+            maxPrice: context.max_price || 2000000,
+            excludeProductIds: [
+              ...(context.excluded_product_ids || []),
+              ...(context.disliked_product_ids || [])
+            ]
+          })
+
+          if (candidates.tops.length > 0 && candidates.bottoms.length > 0) {
+            const selectionPrompt = `Chọn 1 bộ phối đồ (outfit) đẹp nhất cho dịp ${context.occasion || 'hàng ngày'}, phong cách ${context.style || 'tối giản'} từ danh sách:
+Tops: ${JSON.stringify(candidates.tops.map(p => ({ id: p.id, name: p.name, price: p.basePrice })))}
+Bottoms: ${JSON.stringify(candidates.bottoms.map(p => ({ id: p.id, name: p.name, price: p.basePrice })))}
+Accessories: ${JSON.stringify(candidates.accessories.map(p => ({ id: p.id, name: p.name, price: p.basePrice })))}
+
+Yêu cầu:
+1. Chọn 1 Top, 1 Bottom, và 1 Accessory (nếu có).
+2. Tổng giá phải dưới ${context.max_price || 2000000}₫.
+3. Giải thích lý do phối đồ ngắn gọn (stylingTip).
+
+Chỉ trả về JSON:
+{
+  "topId": số,
+  "bottomId": số,
+  "accessoryId": số hoặc null,
+  "stylingTip": "...",
+  "totalPrice": số
+}`
+
+            const selectionRaw = await ollamaChat({
+              system: "Bạn là chuyên gia phối đồ thời trang. Chỉ trả về JSON.",
+              messages: [{ role: 'user', content: selectionPrompt }],
+              temperature: 0.1
+            })
+
+            const match = selectionRaw.match(/\{[\s\S]*\}/)
+            if (match) {
+              const selection = JSON.parse(match[0])
+              const top = candidates.tops.find(p => p.id === selection.topId)
+              const bottom = candidates.bottoms.find(p => p.id === selection.bottomId)
+              const accessory = candidates.accessories.find(p => p.id === selection.accessoryId)
+
+              if (top && bottom) {
+                outfit = {
+                  top,
+                  bottom,
+                  accessory,
+                  stylingTip: selection.stylingTip,
+                  totalPrice: (Number(top.basePrice) + Number(bottom.basePrice) + (accessory ? Number(accessory.basePrice) : 0))
+                }
+                outfitMode = true
+                products = [top, bottom]
+                if (accessory) products.push(accessory)
+
+                const productListStr = products.map(p => `- ${p.name} (${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
+                const refinedReply = await ollamaChat({
+                  system: "Bạn là Stylist AI. Hãy giới thiệu bộ outfit này một cách hào hứng và tự nhiên, Tiếng Việt 100%.",
+                  messages: [{ role: 'user', content: `Giới thiệu bộ đồ gồm:\n${productListStr}\nLý do phối: ${outfit.stylingTip}\nCâu trả lời cũ: "${parsed.reply}"` }],
+                  maxTokens: 512,
+                  temperature: 0.2
+                })
+                
+                if (refinedReply && refinedReply.trim().length > 5) {
+                  parsed.reply = sanitizeResponse(refinedReply)
+                }
+                
+                // Record products as excluded
+                await appendExcludedProducts(pool, conversationId, products.map(p => p.id))
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Outfit selection error:', e)
+          // Fallback to single mode will happen below since outfitMode remains false
+        }
       }
 
-      products = await getProductRecommendations(pool, recommendationParams)
+      // Fallback or explicit single mode
+      if (!outfitMode) {
+        const prefColors = [];
+        const recommendationParams = {
+          categorySlug: parsed.filters.categorySlug || null,
+          maxPrice: context.max_price || null,
+          minPrice: context.min_price || null,
+          gender: context.target_gender || null,
+          excludeProductIds: [
+            ...(context.excluded_product_ids || []),
+            ...(context.disliked_product_ids || [])
+          ],
+          preferredColors: prefColors,
+          dislikedColors: [],
+          limit: 4
+        }
 
-      if (products.length > 0) {
-        // Record products as excluded FOR NEXT TIME
-        await appendExcludedProducts(pool, conversationId, products.map(p => p.id))
+        products = await getProductRecommendations(pool, recommendationParams)
 
-        const productListStr = products.map(p => `- ${p.name} (giá: ${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
-        const contextualPrompt = `Dưới đây là danh sách sản phẩm THẬT từ database:
+        if (products.length > 0) {
+          await appendExcludedProducts(pool, conversationId, products.map(p => p.id))
+          const productListStr = products.map(p => `- ${p.name} (giá: ${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
+          const contextualPrompt = `Dưới đây là danh sách sản phẩm THẬT từ database:
 ${productListStr}
 
 HÃY THAY THẾ hoàn toàn câu trả lời cũ bằng một câu trả lời mới thân thiện và dẫn dắt khéo léo vào các sản phẩm trên.
 KHÔNG lặp lại danh sách sản phẩm nếu nó đã có trong câu trả lời cũ.
-KHÔNG giới thiệu sản phẩm không có trong danh sách trên.
 Câu trả lời cũ: "${parsed.reply}"
 
 LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
 
-        const refinedReply = await ollamaChat({
-          system: "Bạn là Stylist AI. Hãy viết câu trả lời giới thiệu sản phẩm thật. Ngắn gọn, tự nhiên, TIẾNG VIỆT 100%.",
-          messages: [{ role: 'user', content: contextualPrompt }],
-          maxTokens: 512,
-          temperature: 0.2
-        })
-        
-        if (refinedReply && refinedReply.trim().length > 5) {
-          parsed.reply = sanitizeResponse(refinedReply)
+          const refinedReply = await ollamaChat({
+            system: "Bạn là Stylist AI. Hãy viết câu trả lời giới thiệu sản phẩm thật. Ngắn gọn, tự nhiên, TIẾNG VIỆT 100%.",
+            messages: [{ role: 'user', content: contextualPrompt }],
+            maxTokens: 512,
+            temperature: 0.2
+          })
+          
+          if (refinedReply && refinedReply.trim().length > 5) {
+            parsed.reply = sanitizeResponse(refinedReply)
+          }
         }
       }
     } else {
@@ -478,6 +570,8 @@ LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
       nextQuestion: parsed.nextQuestion,
       shouldAskMore: parsed.shouldAskMore,
       products,
+      outfitMode,
+      outfit,
     })}\n\n`)
 
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)

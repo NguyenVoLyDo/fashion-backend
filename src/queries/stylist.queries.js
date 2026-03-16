@@ -117,6 +117,88 @@ export async function getProductRecommendations(pool, {
 }
 
 /**
+ * Lấy danh sách sản phẩm theo các nhóm để tạo outfit (tops, bottoms, accessories)
+ */
+export async function getOutfitRecommendation(pool, {
+  gender,
+  maxPrice,
+  excludeProductIds = [],
+}) {
+  const topSlugs = ['ao-nam', 'ao-thun', 'ao-so-mi', 'ao-nu', 'ao', 'hoodie', 'jacket', 't-shirt', 'shirt'];
+  const bottomSlugs = ['quan-jean', 'quan-nam', 'quan-nu', 'quan', 'vay-dam', 'vay', 'chan-vay', 'pants', 'trousers', 'shorts', 'skirts'];
+  const accessorySlugs = ['phu-kien', 'tui', 'giay', 'mu', 'kinh', 'that-lung', 'belt', 'bag', 'shoes', 'accessories'];
+
+  const fetchCandidates = async (slugs, groupLimit = 5) => {
+    const conditions = ['p.is_active = TRUE', 'v.id IS NOT NULL']
+    const params = [slugs]
+    let idx = 2
+
+    conditions.push(`c.slug = ANY($1)`)
+
+    if (gender) {
+      if (gender === 'male') {
+        conditions.push(`(c.name ILIKE '%Nam%' OR p.description ILIKE '%Nam%' OR c.slug ILIKE '%nam%')`)
+      } else if (gender === 'female') {
+        conditions.push(`(c.name ILIKE '%Nữ%' OR p.description ILIKE '%Nữ%' OR c.slug ILIKE '%nu%' OR c.slug IN ('vay-dam', 'chan-vay'))`)
+      }
+    }
+
+    if (maxPrice) {
+      // Heuristic: mỗi món không nên chiếm quá 80% ngân sách tổng
+      const itemMax = maxPrice * 0.8
+      conditions.push(`p.base_price <= $${idx++}`)
+      params.push(itemMax)
+    }
+
+    if (excludeProductIds.length > 0) {
+      conditions.push(`p.id != ALL($${idx++})`)
+      params.push(excludeProductIds)
+    }
+
+    const { rows } = await pool.query(`
+      SELECT
+        p.id,
+        p.name,
+        p.slug,
+        p.base_price    AS "basePrice",
+        c.name          AS "categoryName",
+        img.url         AS "imageUrl",
+        COALESCE(r.avg_rating, 0) AS "avgRating",
+        v.id            AS "defaultVariantId"
+      FROM products p
+      JOIN categories c ON c.id = p.category_id
+      LEFT JOIN LATERAL (
+        SELECT id FROM product_variants
+        WHERE product_id = p.id AND stock > 0
+        LIMIT 1
+      ) v ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT url FROM product_images
+        WHERE product_id = p.id AND is_primary = TRUE
+        LIMIT 1
+      ) img ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT ROUND(AVG(rating)::numeric, 1) AS avg_rating
+        FROM reviews WHERE product_id = p.id
+      ) r ON TRUE
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY (img.url IS NOT NULL) DESC, r.avg_rating DESC NULLS LAST, RANDOM()
+      LIMIT $${idx}
+    `, [...params, groupLimit])
+
+    return rows
+  }
+
+  const [tops, bottoms, accessories] = await Promise.all([
+    fetchCandidates(topSlugs),
+    fetchCandidates(bottomSlugs),
+    fetchCandidates(accessorySlugs)
+  ])
+
+  return { tops, bottoms, accessories }
+}
+
+/**
  * Lấy lịch sử mua hàng để bot hiểu sở thích
  */
 export async function getUserPurchaseHistory(pool, userId) {
