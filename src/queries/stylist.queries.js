@@ -9,6 +9,8 @@ export async function getProductRecommendations(pool, {
   searchTerm,
   gender,
   excludeProductIds = [],
+  preferredColors = [], // New
+  dislikedColors = [],  // New
   limit = 4,
 }) {
   const conditions = ['p.is_active = TRUE']
@@ -20,7 +22,6 @@ export async function getProductRecommendations(pool, {
     params.push(categorySlug)
   }
   if (gender) {
-    // Lọc theo keyword trong tên category hoặc description, và thêm logic danh mục đặc thù
     if (gender === 'male') {
       conditions.push(`(c.name ILIKE '%Nam%' OR p.description ILIKE '%Nam%' OR c.slug ILIKE '%nam%')`)
     } else if (gender === 'female') {
@@ -28,7 +29,6 @@ export async function getProductRecommendations(pool, {
     }
   }
 
-  // Luôn đảm bảo có hàng
   conditions.push('v.id IS NOT NULL')
   if (maxPrice) {
     conditions.push(`p.base_price <= $${idx++}`)
@@ -48,7 +48,37 @@ export async function getProductRecommendations(pool, {
     params.push(excludeProductIds)
   }
 
+  // Handle disliked colors - Hard filter
+  if (dislikedColors.length > 0) {
+    const dislikedParams = dislikedColors.map(c => `%${c.trim().toLowerCase()}%`)
+    conditions.push(`NOT EXISTS (
+      SELECT 1 FROM product_variants pv2 
+      JOIN colors co2 ON co2.id = pv2.color_id 
+      WHERE pv2.product_id = p.id AND (co2.name ILIKE ANY($${idx++}))
+    )`)
+    params.push(dislikedParams)
+  }
+
   params.push(limit)
+  const limitIdx = idx
+
+  // Order with preferred colors priority (soft filter)
+  let orderBy = `(img.url IS NOT NULL) DESC, r.avg_rating DESC NULLS LAST`
+  
+  if (preferredColors.length > 0) {
+    const preferredParams = preferredColors.map(c => `%${c.trim().toLowerCase()}%`)
+    const prefIdx = idx++
+    params.splice(params.length - 1, 0, preferredParams) // insert before limit
+    
+    orderBy = `
+      EXISTS (
+        SELECT 1 FROM product_variants pv3 
+        JOIN colors co3 ON co3.id = pv3.color_id 
+        WHERE pv3.product_id = p.id AND (co3.name ILIKE ANY($${prefIdx}))
+      ) DESC,
+      ${orderBy}
+    `
+  }
 
   const { rows } = await pool.query(`
     SELECT
@@ -78,10 +108,9 @@ export async function getProductRecommendations(pool, {
     ) r ON TRUE
     WHERE ${conditions.join(' AND ')}
     ORDER BY 
-      (img.url IS NOT NULL) DESC,
-      r.avg_rating DESC NULLS LAST,
+      ${orderBy},
       RANDOM()
-    LIMIT $${idx}
+    LIMIT $${limitIdx}
   `, params)
 
   return rows

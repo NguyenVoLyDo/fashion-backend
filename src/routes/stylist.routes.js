@@ -13,8 +13,15 @@ import {
   getRecentMessages, 
   saveMessage 
 } from '../queries/chat.queries.js'
+import {
+  getUserPreferences,
+  upsertPreferences
+} from '../queries/preferences.queries.js'
 
 const router = Router()
+
+// In-memory store for guest preferences
+const guestPrefs = new Map()
 
 /**
  * Filter out JSON, Chinese, and leaked system instructions
@@ -138,8 +145,60 @@ function extractCollectedInfo(messages) {
   return { info, isNewRequest }
 }
 
+/**
+ * Extract structured preferences from natural language using Ollama
+ */
+async function extractUserPreferences(text) {
+  try {
+    const prompt = `Phân tích câu nói sau và extract thông tin sở thích thời trang.
+Trả về JSON array, mỗi item có: key, value, source ('explicit' hoặc 'inferred').
+
+Ví dụ input: "mình hay mặc đồ tối màu, không thích màu sặc sỡ"
+Ví dụ output:
+[
+  {"key": "preferred_colors", "value": "tối màu, đen, navy, xám", "source": "explicit"},
+  {"key": "disliked_colors", "value": "màu sặc sỡ, neon", "source": "explicit"}
+]
+
+Ví dụ input: "mình làm văn phòng"
+Ví dụ output:
+[
+  {"key": "occupation", "value": "văn phòng", "source": "explicit"},
+  {"key": "preferred_occasions", "value": "đi làm, công sở", "source": "inferred"}
+]
+
+Keys chuẩn nên dùng:
+- preferred_colors, disliked_colors
+- preferred_styles (tối giản, thanh lịch, năng động, cá tính, streetwear)
+- disliked_styles
+- preferred_occasions (đi làm, dạo phố, sự kiện, thể thao)
+- budget_range (dưới 300k / 300-500k / 500k-1tr / trên 1tr)
+- occupation
+- body_notes (ghi chú về vóc dáng nếu user đề cập)
+
+Chỉ extract thông tin thực sự có trong câu nói. Không suy luận quá xa.
+Trả về [] nếu không có thông tin sở thích.
+
+Input: "${text}"`
+
+    const response = await ollamaChat({
+      system: "Bạn là chuyên gia phân tích dữ liệu thời trang. Trả về JSON array.",
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1
+    })
+
+    const match = response.match(/\[[\s\S]*\]/)
+    if (match) {
+      return JSON.parse(match[0])
+    }
+  } catch (error) {
+    console.error('Preference extraction error:', error)
+  }
+  return []
+}
+
 // System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
-function buildStylistPrompt(user, profile, historyInfo, purchaseHistory) {
+function buildStylistPrompt(user, profile, historyInfo, purchaseHistory, preferences = []) {
   const userAge = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
   const userGender = profile?.gender || null;
   
@@ -172,6 +231,25 @@ ${collectedList || '(Chưa có thông tin nào)'}
 
 THÔNG TIN CÒN THIẾU:
 ${missingList || '(Đã đủ thông tin)'}
+
+${preferences.length > 0 ? `SỞ THÍCH ĐÃ BIẾT CỦA KHÁCH HÀNG:
+${preferences.map(p => {
+  const labels = {
+    preferred_colors: 'Màu yêu thích',
+    disliked_colors: 'Không thích màu',
+    preferred_styles: 'Phong cách thích',
+    disliked_styles: 'Phong cách không thích',
+    preferred_occasions: 'Dịp thường mặc',
+    budget_range: 'Ngân sách thường',
+    occupation: 'Nghề nghiệp',
+    body_notes: 'Vóc dáng'
+  }
+  return `- ${labels[p.key] || p.key}: ${p.value}`
+}).join('\n')}
+
+→ Ưu tiên gợi ý sản phẩm phù hợp với sở thích trên.
+→ Không hỏi lại những thông tin đã biết.
+→ Nếu user không đề cập ngân sách -> tự dùng ngân sách đã lưu.` : ''}
 
 QUY TẮC:
 1. **LUẬT SẮT**: CHỈ hỏi những thông tin CHƯA CÓ trong danh sách "THÔNG TIN ĐÃ CÓ". Tuyệt đối không hỏi lại những gì user đã nói.
@@ -228,14 +306,47 @@ router.post(
     const { info: historyInfo, isNewRequest } = extractCollectedInfo(messagesForHistory)
 
     // 2. Fetch dữ liệu cơ bản
-    const [profile, purchaseHistory, { rows: catRows }] = await Promise.all([
+    const [profile, purchaseHistory, dbPreferences, { rows: catRows }] = await Promise.all([
       userId ? getUserProfile(pool, userId) : Promise.resolve(null),
       userId ? getUserPurchaseHistory(pool, userId) : Promise.resolve([]),
+      userId ? getUserPreferences(pool, userId) : Promise.resolve(guestPrefs.get(sessionId) || []),
       pool.query(`SELECT slug FROM categories`),
     ])
 
+    // 3. Extract preferences (Async) - Only for the current message
+    let extractedPrefs = []
+    extractUserPreferences(message).then(async (prefs) => {
+      if (prefs.length > 0) {
+        if (userId) {
+          await upsertPreferences(pool, userId, prefs)
+        } else if (sessionId) {
+          const existing = guestPrefs.get(sessionId) || []
+          prefs.forEach(p => {
+            const idx = existing.findIndex(e => e.key === p.key)
+            if (idx > -1) existing[idx] = p
+            else existing.push(p)
+          })
+          guestPrefs.set(sessionId, existing)
+        }
+      }
+    }).catch(err => console.error('Pref extract async error:', err))
+
+    // Merge current extraction results into dbPreferences for prompt building (approximate)
+    // In a real scenario, we might want to wait if it's critical, but task says "không block response chính"
+    // So we use what we have in DB/Session now.
+
     const availableCategories = catRows.map(r => r.slug)
     const excludeIds = purchaseHistory.map(p => p.productId)
+
+    // 4. Inject preferences into historyInfo if missing
+    if (!historyInfo.budget) {
+      const budgetPref = dbPreferences.find(p => p.key === 'budget_range')
+      if (budgetPref) {
+        // Simple heuristic: extract number from "300-500k"
+        const match = budgetPref.value.match(/(\d+)/)
+        if (match) historyInfo.budget = parseInt(match[1]) * 1000 // Very basic fallback
+      }
+    }
 
     // 3. Tự động xác định target gender từ profile nếu mua cho bản thân
     if (!historyInfo.targetGender && (!historyInfo.recipientDescription || historyInfo.recipientDescription === 'Bản thân')) {
@@ -244,7 +355,7 @@ router.post(
 
     // 3. Gọi AI với state đã extract
     const raw = await ollamaChat({
-      system: buildStylistPrompt(req.user, profile, historyInfo, purchaseHistory),
+      system: buildStylistPrompt(req.user, profile, historyInfo, purchaseHistory, dbPreferences),
       messages: messagesForHistory,
       maxTokens: 512,
       temperature: 0.2
@@ -313,12 +424,17 @@ router.post(
         }
       }
 
+      const prefColors = dbPreferences.find(p => p.key === 'preferred_colors')?.value.split(/[,，]/).map(s => s.trim()) || []
+      const disColors = dbPreferences.find(p => p.key === 'disliked_colors')?.value.split(/[,，]/).map(s => s.trim()) || []
+
       const recommendationParams = {
         categorySlug: parsed.filters.categorySlug || null,
-        maxPrice: parsed.filters.maxPrice || parsed.collectedInfo?.budget || collectedInfo.budget || null,
+        maxPrice: parsed.filters.maxPrice || parsed.collectedInfo?.budget || collectedInfo.budget || historyInfo.budget || null,
         minPrice: parsed.filters.minPrice || null,
         gender: filterGender || null,
         excludeProductIds: excludeIds,
+        preferredColors: prefColors,
+        dislikedColors: disColors,
         limit: 4
       }
 

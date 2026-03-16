@@ -3,6 +3,7 @@ import asyncHandler from '../middleware/async-handler.js';
 import authMiddleware from '../middleware/auth.js';
 import pool from '../config/db.js';
 import * as profileQueries from '../queries/profile.queries.js';
+import * as prefQueries from '../queries/preferences.queries.js';
 
 const router = Router();
 
@@ -92,6 +93,41 @@ router.patch(
       return res.status(404).json({ error: 'Address not found', code: 'NOT_FOUND' });
     }
     res.json({ data: updated });
+  })
+);
+
+// ── Preferences ─────────────────────────────────────────────────────────────
+
+// GET /profile/preferences
+router.get(
+  '/preferences',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const preferences = await prefQueries.getUserPreferences(pool, req.user.id);
+    res.json({ data: preferences });
+  })
+);
+
+// DELETE /profile/preferences/:key
+router.delete(
+  '/preferences/:key',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const success = await prefQueries.deletePreference(pool, req.user.id, req.params.key);
+    if (!success) {
+      return res.status(404).json({ error: 'Preference not found', code: 'NOT_FOUND' });
+    }
+    res.json({ data: { message: 'Preference deleted' } });
+  })
+);
+
+// DELETE /profile/preferences
+router.delete(
+  '/preferences',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    await prefQueries.deleteAllPreferences(pool, req.user.id);
+    res.json({ data: { message: 'All preferences deleted' } });
   })
 );
 
