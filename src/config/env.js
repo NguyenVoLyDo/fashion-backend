@@ -25,4 +25,5 @@ export const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
 export const CLOUDINARY_API_KEY    = process.env.CLOUDINARY_API_KEY;
 export const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 export const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
 

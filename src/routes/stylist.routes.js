@@ -17,6 +17,12 @@ import {
   getUserPreferences,
   upsertPreferences
 } from '../queries/preferences.queries.js'
+import {
+  getContext,
+  upsertContext,
+  appendExcludedProducts,
+  resetContext
+} from '../queries/conversation-context.queries.js'
 
 const router = Router()
 
@@ -61,88 +67,74 @@ function sanitizeResponse(text) {
 }
 
 /**
- * Extract state from chat history using Regex
+ * Extract structured context from natural language using Regex
  */
-function extractCollectedInfo(messages) {
-  const info = {
-    recipientDescription: null,
-    targetGender: null,
-    occasion: null,
-    style: null,
-    budget: null
+function extractContextFromMessage(message, profile) {
+  const text = message.toLowerCase()
+  const updates = {}
+
+  // 1. Gender / Target Gender
+  const femaleKeywords = ["bạn gái", "vợ", "mẹ", "chị", "em gái", "con gái", "nữ", "female"]
+  const maleKeywords = ["bạn trai", "ba", "bố", "anh", "em trai", "con trai", "nam", "male"]
+  const selfKeywords = ["bản thân", "mình", "tôi", "tao"]
+
+  if (femaleKeywords.some(kw => text.includes(kw))) {
+    updates.target_gender = 'female'
+    if (text.includes("bạn gái") || text.includes("vợ") || text.includes("mẹ") || text.includes("chị") || text.includes("em gái")) {
+       updates.recipient = 'other' 
+    }
+  } else if (maleKeywords.some(kw => text.includes(kw))) {
+    updates.target_gender = 'male'
+    if (text.includes("bạn trai") || text.includes("ba") || text.includes("bố") || text.includes("anh") || text.includes("em trai")) {
+       updates.recipient = 'other'
+    }
   }
 
-  // Detect reset keywords in the LATEST message
-  const userMessages = messages.filter(m => m.role === 'user');
-  const lastMsg = userMessages[userMessages.length - 1];
-  const lastText = lastMsg?.content.toLowerCase() || '';
-
-  const resetKeywords = [
-    'phụ kiện', 'túi', 'giày', 'dép', 'mũ', 'thắt lưng', 'ví', 'tất', 'khăn', 'kính',
-    'đổi', 'thay', 'thử', 'xem', 'tìm', 'muốn', 'cho tôi', 'gợi ý',
-    'áo', 'quần', 'váy', 'đầm', 'jacket', 'hoodie'
-  ];
-
-  const isNewRequest = resetKeywords.some(kw => lastText.includes(kw));
-
-  messages.forEach((m, idx) => {
-    if (m.role !== 'user') return
-    const text = m.content.toLowerCase()
-    const isLast = (m === lastMsg);
-    
-    // 1. Đối tượng & Giới tính (Persistent)
-    if (text.includes('cho bản thân') || text.includes('cho mình') || text.includes('cho tôi')) {
-      info.recipientDescription = 'Bản thân'
+  if (selfKeywords.some(kw => text.includes(kw))) {
+    updates.recipient = 'self'
+    if (profile?.gender) {
+      updates.target_gender = profile.gender
     }
-    if (text.includes('tặng bạn gái') || text.includes('tặng vợ') || text.includes('cho vợ') || text.includes('cho bạn gái')) {
-      info.recipientDescription = 'Bạn gái / Vợ'
-      info.targetGender = 'female'
-    }
-    if (text.includes('tặng bạn trai') || text.includes('tặng chồng') || text.includes('cho chồng') || text.includes('cho bạn trai')) {
-      info.recipientDescription = 'Bạn trai / Chồng'
-      info.targetGender = 'male'
-    }
-    if (text.includes('cho con') || text.includes('cho bé') || text.includes('cho cháu')) {
-      info.recipientDescription = 'Con cái / Người thân'
-    }
+  }
 
-    if (text.includes('đồ nam') || text.includes('cho nam') || text.includes('bé trai') || text.includes(' con trai') || text.includes(' áo nam') || text.includes(' quần nam')) info.targetGender = 'male'
-    if (text.includes('đồ nữ') || text.includes('cho nữ') || text.includes('bé gái') || text.includes(' con gái') || text.includes(' áo nữ') || text.includes(' quần nữ') || text.includes(' váy') || text.includes(' đầm')) info.targetGender = 'female'
+  // 2. Occasion
+  if (text.match(/đi làm|công sở|văn phòng|công ty/)) updates.occasion = 'work'
+  if (text.match(/dạo phố|đi chơi|casual|đường phố|hằng ngày/)) updates.occasion = 'casual'
+  if (text.match(/sự kiện|tiệc|dự tiệc|đám cưới|gala|dạ hội/)) updates.occasion = 'event'
+  if (text.match(/thể thao|gym|tập luyện|chạy bộ|yoga/)) updates.occasion = 'sport'
 
-    // 2. Dịp (Perishable - Reset if new request detected unless in last message)
-    if (!isNewRequest || isLast) {
-      if (text.includes('đi làm') || text.includes('công sở') || text.includes('văn phòng') || text.includes('đi dạy')) info.occasion = 'Đi làm'
-      if (text.includes('dạo phố') || text.includes('đi chơi') || text.includes('cà phê') || text.includes('đi dạo')) info.occasion = 'Dạo phố'
-      if (text.includes('hẹn hò') || text.includes('đi date') || text.includes('gặp người yêu')) info.occasion = 'Hẹn hò'
-      if (text.includes('sự kiện') || text.includes('tiệc') || text.includes('đám cưới') || text.includes('festival')) info.occasion = 'Sự kiện'
-      if (text.includes('thể thao') || text.includes('tập gym') || text.includes('chạy bộ') || text.includes('đá bóng')) info.occasion = 'Thể thao'
-      if (text.includes('ở nhà') || text.includes('ngủ')) info.occasion = 'Ở nhà'
-    }
+  // 3. Style
+  if (text.match(/tối giản|minimalist|đơn giản|basic/)) updates.style = 'minimal'
+  if (text.match(/thanh lịch|elegant|lịch sự|formal/)) updates.style = 'elegant'
+  if (text.match(/năng động|sporty|trẻ trung|năng nổ/)) updates.style = 'dynamic'
+  if (text.match(/cá tính|độc đáo|cá nhân|khác biệt|streetwear/)) updates.style = 'unique'
 
-    // 3. Phong cách (Perishable - Reset if new request detected unless in last message)
-    if (!isNewRequest || isLast) {
-      if (text.includes('tối giản') || text.includes('minimalist') || text.includes('đơn giản')) info.style = 'Tối giản'
-      if (text.includes('thanh lịch') || text.includes('elegant') || text.includes('trưởng thành')) info.style = 'Thanh lịch'
-      if (text.includes('năng động') || text.includes('active') || text.includes('trẻ trung')) info.style = 'Năng động'
-      if (text.includes('cá tính') || text.includes('individual') || text.includes('ngầu') || text.includes('unique')) info.style = 'Cá tính'
-      if (text.includes('basic') || text.includes('cơ bản')) info.style = 'Basic'
-    }
+  // 4. Max Price
+  const maxKMatch = text.match(/dưới (\d+)\s*(k|nghìn)/)
+  if (maxKMatch) updates.max_price = parseInt(maxKMatch[1]) * 1000
+  
+  const maxTrMatch = text.match(/dưới (\d+)\s*(triệu|tr)/)
+  if (maxTrMatch) updates.max_price = parseInt(maxTrMatch[1]) * 1000000
 
-    // 4. Ngân sách (Persistent but overridable)
-    const budgetMatch = text.match(/(\d+(?:\.\d+)?)\s*(k|triệu|tr|vnd|đ|đồng)/i)
-    if (budgetMatch) {
-      let val = parseFloat(budgetMatch[1].replace(/\./g, ''))
-      const unit = budgetMatch[2].toLowerCase()
-      if (unit === 'k') val *= 1000
-      if (unit === 'triệu' || unit === 'tr') val *= 1000000
-      info.budget = val
-    } else {
-      const simpleMatch = text.match(/\b(\d{2,3})k\b/i)
-      if (simpleMatch) info.budget = parseInt(simpleMatch[1]) * 1000
-    }
-  })
+  const budgetKMatch = text.match(/tầm (\d+)\s*k/)
+  if (budgetKMatch) updates.max_price = parseInt(budgetKMatch[1]) * 1000
 
-  return { info, isNewRequest }
+  const budgetTrMatch = text.match(/khoảng (\d+)\s*(triệu|tr)/)
+  if (budgetTrMatch) updates.max_price = parseInt(budgetTrMatch[1]) * 1000000
+
+  // 5. Min Price
+  const minMatch = text.match(/từ (\d+)\s*(k|nghìn) trở lên|trên (\d+)\s*(k|nghìn)/)
+  if (minMatch) {
+    const val = minMatch[1] || minMatch[3]
+    updates.min_price = parseInt(val) * 1000
+  }
+
+  return updates
+}
+
+function checkResetIntent(text) {
+  const resetKeywords = ["bắt đầu lại", "tìm kiếm khác", "thôi không cần", "reset"]
+  return resetKeywords.some(kw => text.toLowerCase().includes(kw))
 }
 
 /**
@@ -197,93 +189,54 @@ Input: "${text}"`
   return []
 }
 
-// System prompt cho Stylist Bot - NÂNG CẤP ĐA BƯỚC
-function buildStylistPrompt(user, profile, historyInfo, purchaseHistory, preferences = []) {
-  const userAge = profile?.birthYear ? (new Date().getFullYear() - profile.birthYear) : null;
-  const userGender = profile?.gender || null;
-  
-  // Ưu tiên thông tin vừa extract từ history, nếu không có mới dùng từ profile
-  const recipientDescription = historyInfo.recipientDescription || null;
-  const targetGender = historyInfo.targetGender || null;
-  const occasion = historyInfo.occasion || null;
-  const style = historyInfo.style || null;
-  const budget = historyInfo.budget || null;
+// System prompt cho Stylist Bot - NÂNG CẤP VỚI CONTEXT PERSISTENCE
+function buildStylistPrompt(profile, context = {}) {
+  const genderMap = { 'male': 'Nam', 'female': 'Nữ' };
+  const occasionMap = { 'work': 'Đi làm', 'casual': 'Dạo phố', 'event': 'Sự kiện', 'sport': 'Thể thao' };
+  const styleMap = { 'minimal': 'Tối giản', 'elegant': 'Thanh lịch', 'dynamic': 'Năng động', 'unique': 'Cá tính' };
 
-  const collectedList = [
-    targetGender ? `✓ Giới tính: ${targetGender === 'male' ? 'Nam' : 'Nữ'}` : null,
-    occasion ? `✓ Dịp: ${occasion}` : null,
-    style ? `✓ Phong cách: ${style}` : null,
-    budget ? `✓ Ngân sách: ${budget.toLocaleString('vi-VN')}₫` : null
-  ].filter(Boolean).join('\n')
-
-  const missingList = [
-    !targetGender ? '- Giới tính người mặc (Nam/Nữ)' : null,
-    !occasion ? '- Mục đích sử dụng (Đi làm, dạo phố, sự kiện...)' : null,
-    !style ? '- Phong cách (Tối giản, thanh lịch, năng động...)' : null,
-    !budget ? '- Ngân sách khoảng bao nhiêu' : null
-  ].filter(Boolean).join('\n')
+  const excludedCount = context.excluded_product_ids?.length || 0;
 
   return `Bạn là Stylist AI chuyên nghiệp. Hãy tư vấn ngắn gọn nhưng đầy đủ, tự nhiên.
 TUYỆT ĐỐI CHỈ DÙNG TIẾNG VIỆT.
 
-THÔNG TIN ĐÃ CÓ TỪ LỊCH SỬ CHAT:
-${collectedList || '(Chưa có thông tin nào)'}
-
-THÔNG TIN CÒN THIẾU:
-${missingList || '(Đã đủ thông tin)'}
-
-${preferences.length > 0 ? `SỞ THÍCH ĐÃ BIẾT CỦA KHÁCH HÀNG:
-${preferences.map(p => {
-  const labels = {
-    preferred_colors: 'Màu yêu thích',
-    disliked_colors: 'Không thích màu',
-    preferred_styles: 'Phong cách thích',
-    disliked_styles: 'Phong cách không thích',
-    preferred_occasions: 'Dịp thường mặc',
-    budget_range: 'Ngân sách thường',
-    occupation: 'Nghề nghiệp',
-    body_notes: 'Vóc dáng'
-  }
-  return `- ${labels[p.key] || p.key}: ${p.value}`
-}).join('\n')}
-
-→ Ưu tiên gợi ý sản phẩm phù hợp với sở thích trên.
-→ Không hỏi lại những thông tin đã biết.
-→ Nếu user không đề cập ngân sách -> tự dùng ngân sách đã lưu.` : ''}
+ĐÃ BIẾT VỀ KHÁCH HÀNG:
+${context.target_gender ? `- Giới tính người mặc: ${genderMap[context.target_gender] || context.target_gender}` : ''}
+${context.occasion ? `- Dịp mặc: ${occasionMap[context.occasion] || context.occasion}` : ''}
+${context.style ? `- Phong cách: ${styleMap[context.style] || context.style}` : ''}
+${context.max_price ? `- Ngân sách tối đa: ${context.max_price.toLocaleString('vi-VN')}₫` : ''}
 
 QUY TẮC:
-1. **LUẬT SẮT**: CHỈ hỏi những thông tin CHƯA CÓ trong danh sách "THÔNG TIN ĐÃ CÓ". Tuyệt đối không hỏi lại những gì user đã nói.
-2. Nếu danh sách đã có ĐỦ cả 4 thông tin (Giới tính, Dịp, Phong cách, Ngân sách) -> BẮT BUỘC đặt "shouldRecommend": true và gợi ý sản phẩm ngay, KHÔNG hỏi thêm.
-3. Nếu còn thiếu thông tin, chỉ hỏi DUY NHẤT 1 câu cho thông tin thiếu quan trọng nhất theo thứ tự: Giới tính -> Dịp -> Phong cách -> Ngân sách.
-4. Nếu user nhắn "tặng bạn gái" -> hiểu là "Bạn gái / Vợ", set targetGender: "female".
-5. Nếu mua cho bản thân, không gợi ý đồ trái giới tính profile (Profile Nam không gợi ý váy).
-6. Khi "shouldRecommend" là true, hãy viết câu dẫn dắt mượt mà vào danh sách sản phẩm.
-
-PHẢI TRẢ VỀ JSON:
-{
-  "reply": "câu trả lời/câu hỏi thân thiện",
-  "nextQuestion": "gender" | "occasion" | "style" | "budget" | null,
-  "shouldAskMore": boolean, 
-  "collectedInfo": {
-    "recipientDescription": "...",
-    "targetGender": "male" | "female",
-    "occasion": "...", 
-    "style": "...", 
-    "budget": number
-  },
-  "filters": {
-    "targetGender": "male" | "female",
-    "shouldRecommend": boolean 
-  }
-}`
+- KHÔNG hỏi lại bất kỳ thông tin nào đã có trong "ĐÃ BIẾT" ở trên.
+- Nếu thiếu giới tính hoặc dịp mặc VÀ đây là lần đầu chat (chưa có thông tin gì) -> hỏi 1 câu ngắn gộp cả 2.
+- Nếu đã chat hơn 1 lượt mà vẫn thiếu -> tự suy luận dựa trên tin nhắn user và gợi ý luôn, đừng hỏi lặp lại.
+- Sản phẩm đã gợi ý (${excludedCount} sản phẩm) -> KHÔNG gợi ý lại.
+- Trả về JSON với "reply", "nextQuestion", "shouldAskMore", "filters".`
 }
+
+// POST /stylist/reset
+router.post(
+  '/reset',
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const { conversationId } = req.body
+    if (!conversationId) {
+      const { userId, sessionId } = req
+      const convoId = await getOrCreateConversation(pool, { userId, sessionId, type: 'stylist' })
+      await resetContext(pool, convoId)
+      return res.json({ success: true, message: 'Context reset successfully' })
+    }
+    await resetContext(pool, conversationId)
+    res.json({ success: true, message: 'Context reset successfully' })
+  })
+)
 
 // POST /stylist/chat
 router.post(
   '/chat',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    const { message, collectedInfo = {} } = req.body
+    const { message } = req.body
 
     if (!message?.trim()) {
       return res.status(400).json({ error: 'Message is required', code: 'NO_MESSAGE' })
@@ -293,69 +246,48 @@ router.post(
     const sessionId = req.sessionId ?? null
 
     const conversationId = await getOrCreateConversation(pool, { userId, sessionId, type: 'stylist' })
-    const dbHistory = await getRecentMessages(pool, conversationId, 10)
+    
+    // 0. Check reset intent
+    if (checkResetIntent(message)) {
+      await resetContext(pool, conversationId)
+      // Save user message
+      await saveMessage(pool, { conversationId, role: 'user', content: message })
+      const reply = "Được rồi! Mình bắt đầu lại nhé. Bạn đang tìm gì?"
+      await saveMessage(pool, { conversationId, role: 'assistant', content: reply })
+      
+      return res.json({
+        type: 'response',
+        text: reply,
+        shouldAskMore: true,
+        products: []
+      })
+    }
 
+    // 1. Load context từ DB
+    let context = await getContext(pool, conversationId) || { conversation_id: conversationId }
+
+    // 2. Fetch profile
+    const profile = userId ? await getUserProfile(pool, userId) : null
+
+    // 3. Extract từ tin nhắn hiện tại
+    const extracted = extractContextFromMessage(message, profile)
+    
+    // 4. Merge & Save context (upsertContext handles merging non-nulls)
+    context = await upsertContext(pool, conversationId, extracted)
+
+    // Save user message
     await saveMessage(pool, { conversationId, role: 'user', content: message })
 
-    const messagesForHistory = [
-      ...dbHistory.map(m => ({ role: m.role, content: m.content })),
-      { role: 'user', content: message },
-    ]
+    // Load recent history for AI context (just for tone/flow, context values are in system prompt)
+    const dbHistory = await getRecentMessages(pool, conversationId, 6)
+    const messagesForHistory = dbHistory.map(m => ({ role: m.role, content: m.content }))
 
-    // 1. Tự động extract thông tin từ history (JS side)
-    const { info: historyInfo, isNewRequest } = extractCollectedInfo(messagesForHistory)
+    // 5. Build system prompt với context rõ ràng
+    const systemPrompt = buildStylistPrompt(profile, context)
 
-    // 2. Fetch dữ liệu cơ bản
-    const [profile, purchaseHistory, dbPreferences, { rows: catRows }] = await Promise.all([
-      userId ? getUserProfile(pool, userId) : Promise.resolve(null),
-      userId ? getUserPurchaseHistory(pool, userId) : Promise.resolve([]),
-      userId ? getUserPreferences(pool, userId) : Promise.resolve(guestPrefs.get(sessionId) || []),
-      pool.query(`SELECT slug FROM categories`),
-    ])
-
-    // 3. Extract preferences (Async) - Only for the current message
-    let extractedPrefs = []
-    extractUserPreferences(message).then(async (prefs) => {
-      if (prefs.length > 0) {
-        if (userId) {
-          await upsertPreferences(pool, userId, prefs)
-        } else if (sessionId) {
-          const existing = guestPrefs.get(sessionId) || []
-          prefs.forEach(p => {
-            const idx = existing.findIndex(e => e.key === p.key)
-            if (idx > -1) existing[idx] = p
-            else existing.push(p)
-          })
-          guestPrefs.set(sessionId, existing)
-        }
-      }
-    }).catch(err => console.error('Pref extract async error:', err))
-
-    // Merge current extraction results into dbPreferences for prompt building (approximate)
-    // In a real scenario, we might want to wait if it's critical, but task says "không block response chính"
-    // So we use what we have in DB/Session now.
-
-    const availableCategories = catRows.map(r => r.slug)
-    const excludeIds = purchaseHistory.map(p => p.productId)
-
-    // 4. Inject preferences into historyInfo if missing
-    if (!historyInfo.budget) {
-      const budgetPref = dbPreferences.find(p => p.key === 'budget_range')
-      if (budgetPref) {
-        // Simple heuristic: extract number from "300-500k"
-        const match = budgetPref.value.match(/(\d+)/)
-        if (match) historyInfo.budget = parseInt(match[1]) * 1000 // Very basic fallback
-      }
-    }
-
-    // 3. Tự động xác định target gender từ profile nếu mua cho bản thân
-    if (!historyInfo.targetGender && (!historyInfo.recipientDescription || historyInfo.recipientDescription === 'Bản thân')) {
-      if (profile?.gender) historyInfo.targetGender = profile.gender
-    }
-
-    // 3. Gọi AI với state đã extract
+    // 6. Gọi Ollama
     const raw = await ollamaChat({
-      system: buildStylistPrompt(req.user, profile, historyInfo, purchaseHistory, dbPreferences),
+      system: systemPrompt,
       messages: messagesForHistory,
       maxTokens: 512,
       temperature: 0.2
@@ -370,106 +302,66 @@ router.post(
     }
     
     try {
-      const match = raw.match(/\{[\s\S]*\}/)
-      if (match) {
-        parsed = { ...parsed, ...JSON.parse(match[0]) }
+      const jsonMatch = raw.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        parsed = { ...parsed, ...JSON.parse(jsonMatch[0]) }
       }
     } catch (e) {
       console.error('Stylist JSON Parse Error:', e)
       parsed.reply = sanitizeResponse(raw)
     }
 
-    // 4. FALLBACK & SAFETY VALVE
-    // Cập nhật collectedInfo dựa trên cả JS extraction và AI parsing
-    // Nếu là yêu cầu mới (isNewRequest) -> Ưu tiên JS extraction cho occasion/style (vì JS đã reset chúng)
-    const finalInfo = {
-      ...historyInfo,
-      ...(parsed.collectedInfo || {}) 
-    }
-
-    if (isNewRequest) {
-      finalInfo.occasion = historyInfo.occasion;
-      finalInfo.style = historyInfo.style;
-    }
-
-    const infoCount = Object.values(finalInfo).filter(v => v !== null && v !== undefined && v !== '').length
-    const userTurns = messagesForHistory.filter(m => m.role === 'user').length
-
-    // Giới hạn 4 lượt hỏi hoặc đủ thông tin
-    if (infoCount >= 4 || userTurns >= 4) {
-      parsed.shouldAskMore = false
-      parsed.filters.shouldRecommend = true
-    }
-
-    // Fetch sản phẩm nếu đủ điều kiện (recommend: true HOẶC bot không muốn hỏi thêm nữa)
-    let products = []
-    const isReadyToRecommend = parsed.filters?.shouldRecommend || !parsed.shouldAskMore;
-    
-    if (isReadyToRecommend) {
-      // Logic xác định target gender cho filter
-      let filterGender = parsed.filters?.targetGender || parsed.collectedInfo?.targetGender || finalInfo.targetGender;
-      
-      const recipient = (finalInfo.recipientDescription || '').toLowerCase();
-      
-      // Nếu không có thông tin giới tính đích mà là mua cho bản thân hoặc chưa rõ đối tượng, dùng giới tính profile
-      if (!filterGender) {
-        const isForSelf = !recipient || 
-                          recipient === 'chưa biết' || 
-                          recipient.includes('bản thân') || 
-                          recipient.includes('mình') || 
-                          recipient.includes('tôi');
-        
-        if (isForSelf) {
-          filterGender = profile?.gender;
-        }
+    // Preference extraction (Async) - Long term preferences
+    extractUserPreferences(message).then(async (prefs) => {
+      if (prefs.length > 0 && userId) {
+        await upsertPreferences(pool, userId, prefs)
       }
+    }).catch(err => console.error('Pref extract async error:', err))
 
-      const prefColors = dbPreferences.find(p => p.key === 'preferred_colors')?.value.split(/[,，]/).map(s => s.trim()) || []
-      const disColors = dbPreferences.find(p => p.key === 'disliked_colors')?.value.split(/[,，]/).map(s => s.trim()) || []
+    // 7. Determine if should recommend
+    const missingCrucial = !context.target_gender || !context.occasion;
+    const userTurns = messagesForHistory.filter(m => m.role === 'user').length;
 
+    if (!missingCrucial || userTurns >= 4) {
+      parsed.filters.shouldRecommend = true;
+      parsed.shouldAskMore = false;
+    }
+
+    let products = []
+    if (parsed.filters?.shouldRecommend || !parsed.shouldAskMore) {
+      const prefColors = []; // Could fetch from dbPreferences if needed
+      
       const recommendationParams = {
         categorySlug: parsed.filters.categorySlug || null,
-        maxPrice: parsed.filters.maxPrice || parsed.collectedInfo?.budget || collectedInfo.budget || historyInfo.budget || null,
-        minPrice: parsed.filters.minPrice || null,
-        gender: filterGender || null,
-        excludeProductIds: excludeIds,
+        maxPrice: context.max_price || null,
+        minPrice: context.min_price || null,
+        gender: context.target_gender || null,
+        excludeProductIds: context.excluded_product_ids || [],
         preferredColors: prefColors,
-        dislikedColors: disColors,
+        dislikedColors: [],
         limit: 4
       }
 
       products = await getProductRecommendations(pool, recommendationParams)
 
-      // FALLBACK: Nếu không tìm thấy sản phẩm với category cụ thể, thử tìm rộng hơn
-      if (products.length === 0 && recommendationParams.categorySlug) {
-        products = await getProductRecommendations(pool, {
-          ...recommendationParams,
-          categorySlug: null
-        })
-      }
-
       if (products.length > 0) {
-        // Đã có sản phẩm -> Kết thúc lượt hỏi
-        parsed.shouldAskMore = false;
-        parsed.filters.shouldRecommend = true;
+        // Record products as excluded FOR NEXT TIME
+        await appendExcludedProducts(pool, conversationId, products.map(p => p.id))
 
         const productListStr = products.map(p => `- ${p.name} (giá: ${Number(p.basePrice).toLocaleString('vi-VN')}₫)`).join('\n')
         const contextualPrompt = `Dưới đây là danh sách sản phẩm THẬT từ database:
 ${productListStr}
 
 HÃY THAY THẾ hoàn toàn câu trả lời cũ bằng một câu trả lời mới thân thiện và dẫn dắt khéo léo vào các sản phẩm trên.
-TUYỆT ĐỐI KHÔNG lặp lại danh sách sản phẩm nếu nó đã có trong câu trả lời cũ.
-TUYỆT ĐỐI KHÔNG giới thiệu sản phẩm không có trong danh sách trên.
+KHÔNG lặp lại danh sách sản phẩm nếu nó đã có trong câu trả lời cũ.
+KHÔNG giới thiệu sản phẩm không có trong danh sách trên.
 Câu trả lời cũ: "${parsed.reply}"
 
 LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
 
         const refinedReply = await ollamaChat({
           system: "Bạn là Stylist AI. Hãy viết câu trả lời giới thiệu sản phẩm thật. Ngắn gọn, tự nhiên, TIẾNG VIỆT 100%.",
-          messages: [
-            ...messagesForHistory.slice(-2),
-            { role: 'user', content: contextualPrompt }
-          ],
+          messages: [{ role: 'user', content: contextualPrompt }],
           maxTokens: 512,
           temperature: 0.2
         })
@@ -488,6 +380,8 @@ LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
       content: parsed.reply 
     })
 
+    // SSE or Regular JSON? Original code used SSE but didn't actually stream chunks.
+    // Fixed format to match original expectation
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
@@ -497,7 +391,6 @@ LƯU Ý: CHỈ TRẢ VỀ TEXT CÂU TRẢ LỜI MỚI.`
       text: parsed.reply,
       nextQuestion: parsed.nextQuestion,
       shouldAskMore: parsed.shouldAskMore,
-      collectedInfo: finalInfo,
       products,
     })}\n\n`)
 

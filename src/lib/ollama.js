@@ -1,6 +1,4 @@
-import { OLLAMA_URL } from '../config/env.js'
-
-const OLLAMA_MODEL = 'qwen2.5:7b'
+import { OLLAMA_URL, OLLAMA_MODEL } from '../config/env.js'
 const OLLAMA_HEADERS = {
   'Content-Type': 'application/json',
   'ngrok-skip-browser-warning': 'true',
