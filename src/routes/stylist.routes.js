@@ -389,7 +389,7 @@ router.post(
     const missingCrucial = !context.target_gender || !context.occasion;
     const userTurns = messagesForHistory.filter(m => m.role === 'user').length;
     const isNegativeFeedback = extracted.feedback?.feedbackType === 'negative';
-    const isOutfitRequest = context.request_Type === 'outfit' || extracted.requestType === 'outfit';
+    const isOutfitRequest = (context?.requestType === 'outfit') || (extracted.requestType === 'outfit');
 
     if (!missingCrucial || userTurns >= 4 || isNegativeFeedback || isOutfitRequest) {
       parsed.filters.shouldRecommend = true;
